@@ -27,7 +27,9 @@ export function makeUnassignedRenderKey(devices, connection) {
 }
 
 export function formatDistance(value) {
-  return Number.isFinite(value) && value >= 0 ? `${value.toFixed(2)} m` : "—";
+  return Number.isFinite(value) && value >= 0
+    ? `${(value * 100).toFixed(1)} cm`
+    : "—";
 }
 
 export function formatAge(timestampMs, nowMs = Date.now()) {

@@ -41,8 +41,8 @@ test("builds the required dashboard pong with an echoed server timestamp", () =>
 });
 
 test("formats distances with two decimals and unavailable values as an em dash", () => {
-  assert.equal(formatDistance(0), "0.00 m");
-  assert.equal(formatDistance(1.234), "1.23 m");
+  assert.equal(formatDistance(0), "0.0 cm");
+  assert.equal(formatDistance(1.234), "123.4 cm");
   assert.equal(formatDistance(null), "—");
   assert.equal(formatDistance(Number.NaN), "—");
   assert.equal(formatDistance(-1), "—");
