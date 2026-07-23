@@ -1,0 +1,18 @@
+{
+  "name": "value-archive-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local performance server for the Value Archive installation",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.1.0",
+    "ws": "^8.18.3"
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "sequenceId": "performance-v1",
+  "steps": [
+    {
+      "stepId": "intro",
+      "title": "인트로",
+      "targets": ["A", "B"],
+      "trigger": {
+        "type": "manual"
+      },
+      "params": {}
+    },
+    {
+      "stepId": "approach",
+      "title": "명함 접근",
+      "targets": ["A", "B"],
+      "trigger": {
+        "type": "condition",
+        "metric": "markerToMarker",
+        "op": "<",
+        "valueMeters": 0.3,
+        "holdMs": 500,
+        "source": "any"
+      },
+      "params": {}
+    }
+  ]
+}
