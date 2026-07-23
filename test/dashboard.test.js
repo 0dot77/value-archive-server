@@ -211,6 +211,10 @@ test("constrains the desktop console and restores mobile scrolling", async () =>
     css,
     /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?body\s*\{[^}]*height:\s*auto;[^}]*overflow-y:\s*auto;/s
   );
+  assert.match(
+    css,
+    /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?\.operator-bar\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*20;/s
+  );
 });
 
 test("toggles health details through the delegated click handler", async () => {
