@@ -12,8 +12,8 @@
 
 - Production uses Node.js 22 with `"type": "module"` and no transpiler, bundler, TypeScript, frontend framework, or CDN.
 - `express` and `ws` are the only runtime dependencies.
-- HTTP and WebSocket share TCP port `8080`; WebSocket upgrades are accepted only at `/ws`.
-- UDP discovery listens on `47800` and answers exact payload `VA_DISCOVER?` with `VA_SERVER {"ip":"<lan-ip>","port":8080}`.
+- HTTP and WebSocket share TCP port `8765`; WebSocket upgrades are accepted only at `/ws`.
+- UDP discovery listens on `47800` and answers exact payload `VA_DISCOVER?` with `VA_SERVER {"ip":"<lan-ip>","port":<actual-bound-http-port>}`.
 - All JSON WebSocket messages contain `t`; screenshot frames are binary and retain the leading ASCII role byte.
 - Health older than 5 seconds is offline; pings are sent every 2 seconds; device updates are pushed immediately on change and every 1 second.
 - Registry writes are atomic and role assignment is unique: assigning an occupied role unassigns the old device.
@@ -65,7 +65,7 @@
 
 **Interfaces:**
 - `createValueArchiveServer(options?)` creates but does not start the services and returns async `start()`, async `stop()`, `address()`, and read-only `getState()`.
-- Running `node src/server.js` starts HTTP/WS on `8080` and UDP on `47800`.
+- Running `node src/server.js` starts HTTP/WS on `8765` and UDP on `47800`.
 - Debug endpoints are `GET /api/state`, `POST /api/assign`, and `POST /api/seq`.
 
 - [ ] **Step 1: Add failing integration tests**

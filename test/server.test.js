@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import dgram from "node:dgram";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { createConnection } from "node:net";
+import { createConnection, createServer as createTcpServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -46,6 +46,41 @@ const completeHealth = {
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function findAvailableTcpPort() {
+  const server = createTcpServer();
+
+  try {
+    await new Promise((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(0, "127.0.0.1", resolve);
+    });
+    return server.address().port;
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
+}
+
+async function withVaPort(value, callback) {
+  const hadValue = Object.hasOwn(process.env, "VA_PORT");
+  const previousValue = process.env.VA_PORT;
+
+  if (value === undefined) {
+    delete process.env.VA_PORT;
+  } else {
+    process.env.VA_PORT = value;
+  }
+
+  try {
+    return await callback();
+  } finally {
+    if (hadValue) {
+      process.env.VA_PORT = previousValue;
+    } else {
+      delete process.env.VA_PORT;
+    }
+  }
 }
 
 function createMessageInbox(webSocket) {
@@ -328,6 +363,75 @@ async function discover(udpPort) {
   }
 }
 
+test("uses TCP port 8765 when no HTTP port option or VA_PORT is set", async (t) => {
+  await withVaPort(undefined, async () => {
+    const fixture = await createRunningServer(t, {}, {
+      httpPort: undefined,
+      port: undefined
+    });
+
+    assert.equal(fixture.addresses.http.port, 8765);
+  });
+});
+
+test("uses VA_PORT when neither explicit HTTP port option is set", async (t) => {
+  const selectedPort = await findAvailableTcpPort();
+
+  await withVaPort(String(selectedPort), async () => {
+    const fixture = await createRunningServer(t, {}, {
+      httpPort: undefined,
+      port: undefined
+    });
+
+    assert.equal(fixture.addresses.http.port, selectedPort);
+  });
+});
+
+test("explicit HTTP port options take precedence over VA_PORT and preserve zero", async (t) => {
+  await withVaPort("not-a-port", async () => {
+    const explicitHttpPort = await createRunningServer(t, {}, {
+      httpPort: 0,
+      port: 1
+    });
+    assert.notEqual(explicitHttpPort.addresses.http.port, 0);
+    assert.notEqual(explicitHttpPort.addresses.http.port, 1);
+
+    const explicitPortAlias = await createRunningServer(t, {}, {
+      httpPort: undefined,
+      port: 0
+    });
+    assert.notEqual(explicitPortAlias.addresses.http.port, 0);
+  });
+});
+
+test("rejects invalid VA_PORT decimal strings and ranges", async () => {
+  for (const value of [
+    "",
+    "0",
+    "65536",
+    "-1",
+    "1.5",
+    "8765junk",
+    " 8765",
+    "0x223d"
+  ]) {
+    await withVaPort(value, async () => {
+      assert.throws(
+        () =>
+          createValueArchiveServer({
+            httpPort: undefined,
+            port: undefined,
+            advertiseIp: "192.0.2.44"
+          }),
+        {
+          name: "TypeError",
+          message: /VA_PORT must be a decimal integer from 1 through 65535/
+        }
+      );
+    });
+  }
+});
+
 test("serves exact REST state and validates assignment and sequence commands", async (t) => {
   const fixture = await createRunningServer(t);
 
@@ -559,6 +663,77 @@ test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and 
     }
   );
   assert.equal(deviceFrom(closedUpdate, "quest-alpha").online, false);
+});
+
+test("normalizes negative Quest health sentinels before storing and forwarding", async (t) => {
+  const fixture = await createRunningServer(t);
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await dashboard.nextJson("welcome");
+
+  const quest = await openPeer(t, fixture.wsUrl);
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-negative-sentinels"
+  });
+  await quest.nextJson("welcome");
+
+  quest.sendJson({
+    t: "health",
+    fps: 71.9,
+    cvHz: 0,
+    cvMs: 0.4,
+    batteryPct: -1,
+    markers: [],
+    dist: {
+      markerToMarker: -1,
+      selfToOwn: -1,
+      selfToOther: -1
+    },
+    trackingOk: false
+  });
+
+  const expectedHealth = {
+    fps: 71.9,
+    cvHz: 0,
+    cvMs: 0.4,
+    batteryPct: null,
+    markers: [],
+    dist: {
+      markerToMarker: null,
+      selfToOwn: null,
+      selfToOther: null
+    },
+    trackingOk: false
+  };
+  const forwardedUpdate = await dashboard.nextJson(
+    "deviceUpdate",
+    (message) =>
+      deviceFrom(message, "quest-negative-sentinels")?.lastHealth?.fps ===
+      71.9
+  );
+  const forwardedHealth = deviceFrom(
+    forwardedUpdate,
+    "quest-negative-sentinels"
+  ).lastHealth;
+  const storedHealth = deviceFrom(
+    fixture.server.getState(),
+    "quest-negative-sentinels"
+  ).lastHealth;
+
+  assert.deepEqual(forwardedHealth, expectedHealth);
+  assert.deepEqual(storedHealth, expectedHealth);
+  for (const health of [forwardedHealth, storedHealth]) {
+    assert.equal(health.batteryPct, null);
+    assert.deepEqual(Object.values(health.dist), [null, null, null]);
+    assert.equal(
+      [health.batteryPct, ...Object.values(health.dist)].some(
+        (value) => typeof value === "number" && value < 0
+      ),
+      false
+    );
+  }
 });
 
 test("accepts a dashboard pong without emitting an error", async (t) => {

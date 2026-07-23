@@ -20,12 +20,30 @@ npm install
 npm start
 ```
 
-브라우저에서 <http://localhost:8080>을 열면 운영 대시보드가 표시됩니다.
+브라우저에서 <http://localhost:8765>를 열면 운영 대시보드가 표시됩니다.
 
 | 프로토콜 | 포트 | 용도 |
 |---|---:|---|
-| TCP | 8080 | HTTP 대시보드, REST API, `/ws` WebSocket |
+| TCP | 8765 | HTTP 대시보드, REST API, `/ws` WebSocket |
 | UDP | 47800 | `VA_DISCOVER?` 서버 발견 요청/응답 |
+
+기본 TCP 포트를 바꾸려면 서버를 시작하기 전에 `VA_PORT`를 설정합니다.
+
+```powershell
+$env:VA_PORT = '9000'
+npm start
+```
+
+`VA_PORT`는 십진수 숫자로만 이루어진 `1`~`65535` 정수여야 하며, 값이
+잘못되면 서버가 오류와 함께 시작을 중단합니다. 코드에서 서버를 생성할 때는
+`httpPort`, `port`, `VA_PORT`, 기본값 `8765` 순서로 우선합니다. 명시적인
+`httpPort` 또는 `port` 값이 `null`/`undefined`가 아니면 `VA_PORT`는
+검사하지 않습니다.
+
+이 문서의 대시보드 URL, REST API, TCP 방화벽 및 포트 확인 예제에 적힌
+`8765`는 기본값입니다. `VA_PORT`를 설정했다면 해당 예제의 TCP 포트를
+선택한 값으로 바꿉니다. UDP 발견 응답은 실제로 바인딩된 HTTP 포트를
+광고합니다.
 
 ## Quest 없이 두 대로 점검하기
 
@@ -47,6 +65,10 @@ node tools/mock-quest.js mock-quest-b
 node tools/mock-quest.js mock-quest-a --direct 127.0.0.1
 node tools/mock-quest.js mock-quest-b --direct 127.0.0.1
 ```
+
+mock의 `--direct` 모드는 서버의 `VA_PORT`를 상속하지 않고 항상 `8765`를
+사용하는 고정 fallback이며, 직접 연결 포트를 지정하는 CLI 옵션은 없습니다.
+`VA_PORT`를 바꿨다면 `--direct` 대신 UDP 발견 모드를 사용합니다.
 
 mock은 welcome 이후 1초마다 health를 전송합니다. 대시보드에서 역할 A 또는
 B를 받은 뒤에는 3초마다 역할별 색상의 JPEG 프레임을 보내며, 프레임 요청에는
@@ -70,24 +92,24 @@ PowerShell의 `Invoke-RestMethod`로 대시보드와 같은 서버 상태를 점
 있습니다.
 
 ```powershell
-Invoke-RestMethod -Method Get -Uri 'http://localhost:8080/api/state'
+Invoke-RestMethod -Method Get -Uri 'http://localhost:8765/api/state'
 ```
 
 역할을 직접 배정하는 예:
 
 ```powershell
 $body = @{ deviceId = 'mock-quest-a'; role = 'A' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/assign' -ContentType 'application/json' -Body $body
+Invoke-RestMethod -Method Post -Uri 'http://localhost:8765/api/assign' -ContentType 'application/json' -Body $body
 ```
 
 시퀀스를 시작하거나 다음 단계로 이동하는 예:
 
 ```powershell
 $body = @{ action = 'start' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/seq' -ContentType 'application/json' -Body $body
+Invoke-RestMethod -Method Post -Uri 'http://localhost:8765/api/seq' -ContentType 'application/json' -Body $body
 
 $body = @{ action = 'next' } | ConvertTo-Json
-Invoke-RestMethod -Method Post -Uri 'http://localhost:8080/api/seq' -ContentType 'application/json' -Body $body
+Invoke-RestMethod -Method Post -Uri 'http://localhost:8765/api/seq' -ContentType 'application/json' -Body $body
 ```
 
 `action`은 `start`, `stop`, `next`, `prev`, `goto`를 지원하며 `goto`에는
@@ -111,10 +133,11 @@ mock은 선택된 `eye`/`pca` 값을 기록하고 로그에 남기지만, 실제
 ## Windows 방화벽과 네트워크
 
 실제 Quest가 접속할 노트북의 네트워크 프로필을 **Private**로 설정하고,
-관리자 PowerShell에서 다음 인바운드 규칙을 추가합니다.
+관리자 PowerShell에서 다음 인바운드 규칙을 추가합니다. TCP 규칙은 기본
+포트 `8765` 기준이며, `VA_PORT`를 설정했다면 선택한 포트로 바꿉니다.
 
 ```powershell
-New-NetFirewallRule -DisplayName 'Value Archive TCP 8080' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8080 -Profile Private
+New-NetFirewallRule -DisplayName 'Value Archive TCP 8765' -Direction Inbound -Action Allow -Protocol TCP -LocalPort 8765 -Profile Private
 New-NetFirewallRule -DisplayName 'Value Archive UDP 47800' -Direction Inbound -Action Allow -Protocol UDP -LocalPort 47800 -Profile Private
 ```
 
@@ -143,16 +166,18 @@ npm start
    ```
 
 4. `VA_ADVERTISE_IP`가 VPN이나 사용하지 않는 어댑터 주소가 아닌지 확인합니다.
-5. 포트 충돌을 확인합니다.
+5. 포트 충돌을 확인합니다. 아래 TCP 명령의 `8765`는 기본값이므로
+   `VA_PORT`를 설정했다면 선택한 포트로 바꿉니다.
 
    ```powershell
-   Get-NetTCPConnection -LocalPort 8080 -ErrorAction SilentlyContinue
+   Get-NetTCPConnection -LocalPort 8765 -ErrorAction SilentlyContinue
    Get-NetUDPEndpoint -LocalPort 47800 -ErrorAction SilentlyContinue
    ```
 
    다른 프로세스가 점유 중이면 그 프로그램을 정상 종료한 뒤 서버를 다시
-   시작합니다. 표준 실행과 mock 직접 연결은 TCP 8080, 발견은 UDP 47800을
-   사용하므로 충돌한 상태에서 다른 포트로 자동 우회하지 않습니다.
+   시작합니다. 서버 TCP는 기본 `8765` 또는 `VA_PORT`로 선택한 포트를,
+   mock 직접 연결은 항상 TCP `8765`를, 발견은 UDP `47800`을 사용합니다.
+   충돌한 상태에서 다른 포트로 자동 우회하지 않습니다.
 
 ## 운영 보안 경계와 종료
 

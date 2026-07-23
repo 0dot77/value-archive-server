@@ -42,6 +42,27 @@ function requirePort(value, name) {
   return value;
 }
 
+function readVaPort() {
+  const value = process.env.VA_PORT;
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!/^[0-9]+$/.test(value)) {
+    throw new TypeError(
+      "VA_PORT must be a decimal integer from 1 through 65535"
+    );
+  }
+
+  const port = Number(value);
+  if (!Number.isSafeInteger(port) || port < 1 || port > 65535) {
+    throw new TypeError(
+      "VA_PORT must be a decimal integer from 1 through 65535"
+    );
+  }
+  return port;
+}
+
 function requirePositiveInterval(value, name) {
   if (!Number.isFinite(value) || value <= 0) {
     throw new TypeError(`${name} must be a positive finite number`);
@@ -57,11 +78,11 @@ function requireRole(role) {
 }
 
 function normalizeHealthMessage(message) {
+  const normalizedMessage = clone(message);
   const telemetryNumbers = [
-    message.fps,
-    message.cvHz,
-    message.cvMs,
-    message.batteryPct
+    normalizedMessage.fps,
+    normalizedMessage.cvHz,
+    normalizedMessage.cvMs
   ];
   if (
     telemetryNumbers.some(
@@ -70,15 +91,21 @@ function normalizeHealthMessage(message) {
         !Number.isFinite(value) ||
         value < 0
     ) ||
-    message.batteryPct > 100 ||
-    !Array.isArray(message.markers) ||
-    message.markers.some(
+    typeof normalizedMessage.batteryPct !== "number" ||
+    !Number.isFinite(normalizedMessage.batteryPct) ||
+    normalizedMessage.batteryPct > 100 ||
+    !Array.isArray(normalizedMessage.markers) ||
+    normalizedMessage.markers.some(
       (markerId) => !Number.isSafeInteger(markerId) || markerId < 0
     ) ||
-    !isObject(message.dist) ||
-    typeof message.trackingOk !== "boolean"
+    !isObject(normalizedMessage.dist) ||
+    typeof normalizedMessage.trackingOk !== "boolean"
   ) {
     return null;
+  }
+
+  if (normalizedMessage.batteryPct < 0) {
+    normalizedMessage.batteryPct = null;
   }
 
   for (const field of [
@@ -86,19 +113,21 @@ function normalizeHealthMessage(message) {
     "selfToOwn",
     "selfToOther"
   ]) {
-    const distance = message.dist[field];
+    const distance = normalizedMessage.dist[field];
     if (
       distance !== null &&
       (typeof distance !== "number" ||
-        !Number.isFinite(distance) ||
-        distance < 0)
+        !Number.isFinite(distance))
     ) {
       return null;
     }
+    if (typeof distance === "number" && distance < 0) {
+      normalizedMessage.dist[field] = null;
+    }
   }
 
-  const { t: _type, ...health } = message;
-  return clone(health);
+  const { t: _type, ...health } = normalizedMessage;
+  return health;
 }
 
 function normalizeHttpAddress(address) {
@@ -231,7 +260,7 @@ export function createValueArchiveServer(options = {}) {
     "httpHost"
   );
   const httpPort = requirePort(
-    options.httpPort ?? options.port ?? 8080,
+    options.httpPort ?? options.port ?? readVaPort() ?? 8765,
     "httpPort"
   );
   const udpHost = requireNonEmptyString(
