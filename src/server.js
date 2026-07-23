@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import dgram from "node:dgram";
 import { createServer as createHttpServer } from "node:http";
 import { isIPv4 } from "node:net";
@@ -293,6 +294,63 @@ function bindUdp(socket, port, host) {
     socket.once("listening", onListening);
     socket.bind(port, host);
   });
+}
+
+export function openDashboardInBrowser(
+  url,
+  {
+    logger = console,
+    platform = process.platform,
+    spawn: spawnProcess = spawn
+  } = {}
+) {
+  let failureReported = false;
+
+  function reportFailure(detail) {
+    if (failureReported) {
+      return;
+    }
+    failureReported = true;
+
+    try {
+      const message =
+        detail instanceof Error ? detail.message : String(detail);
+      logger?.warn?.(`[VA] Could not open dashboard: ${message}`);
+    } catch {
+      // Browser launch failures must never interrupt server startup.
+    }
+  }
+
+  try {
+    let command;
+    let args;
+
+    if (platform === "win32") {
+      command = "cmd";
+      args = ["/c", "start", "", url];
+    } else if (platform === "darwin") {
+      command = "open";
+      args = [url];
+    } else {
+      command = "xdg-open";
+      args = [url];
+    }
+
+    const child = spawnProcess(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    });
+    child.once("error", reportFailure);
+    child.once("exit", (code) => {
+      if (code !== null && code !== 0) {
+        reportFailure(`browser launcher exited with code ${code}`);
+      }
+    });
+    child.unref();
+  } catch (error) {
+    reportFailure(error);
+  }
 }
 
 export function createValueArchiveServer(options = {}) {
@@ -1303,7 +1361,14 @@ function isCommandLineEntryPoint() {
 if (isCommandLineEntryPoint()) {
   const server = createValueArchiveServer();
 
-  server.start().catch((error) => {
+  server.start().then((address) => {
+    if (!shuttingDown && process.env.VA_NO_OPEN !== "1") {
+      openDashboardInBrowser(
+        `http://localhost:${address.http.port}`,
+        { logger: console }
+      );
+    }
+  }).catch((error) => {
     console.error(`[VA] Startup failed: ${error.message}`);
     process.exitCode = 1;
   });
