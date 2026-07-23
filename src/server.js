@@ -28,6 +28,62 @@ function clone(value) {
   return structuredClone(value);
 }
 
+function ipv4ToUnsignedInteger(address) {
+  return address
+    .split(".")
+    .reduce((value, octet) => (value * 256 + Number(octet)) >>> 0, 0);
+}
+
+export function isIpv4InSubnet(
+  requesterAddress,
+  interfaceAddress,
+  netmask
+) {
+  if (
+    typeof requesterAddress !== "string" ||
+    typeof interfaceAddress !== "string" ||
+    typeof netmask !== "string" ||
+    !isIPv4(requesterAddress) ||
+    !isIPv4(interfaceAddress) ||
+    !isIPv4(netmask)
+  ) {
+    return false;
+  }
+
+  const requester = ipv4ToUnsignedInteger(requesterAddress);
+  const interfaceIp = ipv4ToUnsignedInteger(interfaceAddress);
+  const mask = ipv4ToUnsignedInteger(netmask);
+  return (
+    ((requester & mask) >>> 0) === ((interfaceIp & mask) >>> 0)
+  );
+}
+
+export function selectAdvertiseIp({
+  configuredAdvertiseIp,
+  requesterAddress,
+  candidates
+} = {}) {
+  if (typeof configuredAdvertiseIp === "string") {
+    return configuredAdvertiseIp;
+  }
+
+  const availableCandidates = Array.isArray(candidates) ? candidates : [];
+  const matchingCandidate = availableCandidates.find((candidate) =>
+    isIpv4InSubnet(
+      requesterAddress,
+      candidate?.address,
+      candidate?.netmask
+    )
+  );
+  if (matchingCandidate) {
+    return matchingCandidate.address;
+  }
+
+  return typeof availableCandidates[0]?.address === "string"
+    ? availableCandidates[0].address
+    : "127.0.0.1";
+}
+
 function requireNonEmptyString(value, name) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new TypeError(`${name} must be a non-empty string`);
@@ -345,7 +401,7 @@ export function createValueArchiveServer(options = {}) {
     return timestamp;
   }
 
-  function selectAdvertiseIp() {
+  function readAdvertiseCandidates(logInterfaces = false) {
     const candidates = [];
 
     for (const [interfaceName, addresses] of Object.entries(
@@ -358,10 +414,22 @@ export function createValueArchiveServer(options = {}) {
           continue;
         }
 
-        candidates.push(address.address);
-        emitLog("info", `IPv4 ${interfaceName}: ${address.address}`);
+        candidates.push({
+          address: address.address,
+          netmask: address.netmask,
+          cidr: address.cidr
+        });
+        if (logInterfaces) {
+          emitLog("info", `IPv4 ${interfaceName}: ${address.address}`);
+        }
       }
     }
+
+    return candidates;
+  }
+
+  function selectStartupAdvertiseIp() {
+    const candidates = readAdvertiseCandidates(true);
 
     if (candidates.length === 0) {
       emitLog("warn", "No non-internal IPv4 address found; using 127.0.0.1");
@@ -371,7 +439,7 @@ export function createValueArchiveServer(options = {}) {
       emitLog("info", `Using advertised IPv4 override ${configuredAdvertiseIp}`);
     }
 
-    return configuredAdvertiseIp ?? candidates[0] ?? "127.0.0.1";
+    return selectAdvertiseIp({ configuredAdvertiseIp, candidates });
   }
 
   function isOpen(socket) {
@@ -999,7 +1067,7 @@ export function createValueArchiveServer(options = {}) {
       sequence = await loadSequence(sequenceFilePath);
       sequenceController = createSequenceController(sequence, { now });
       devices.clear();
-      advertiseIp = selectAdvertiseIp();
+      advertiseIp = selectStartupAdvertiseIp();
 
       const nextHttpServer = createHttpServer(app);
       const nextWebSocketServer = new WebSocketServer({ noServer: true });
@@ -1059,9 +1127,34 @@ export function createValueArchiveServer(options = {}) {
           if (!actualHttpAddress) {
             return;
           }
+
+          let replyAdvertiseIp = advertiseIp;
+          if (configuredAdvertiseIp === undefined) {
+            const candidates = readAdvertiseCandidates();
+            const requesterMatched = candidates.some((candidate) =>
+              isIpv4InSubnet(
+                remote.address,
+                candidate.address,
+                candidate.netmask
+              )
+            );
+            replyAdvertiseIp = selectAdvertiseIp({
+              requesterAddress: remote.address,
+              candidates
+            });
+            if (!requesterMatched) {
+              emitLog(
+                "warn",
+                `No interface matched requester ${JSON.stringify(
+                  remote.address
+                )}; using fallback ${JSON.stringify(replyAdvertiseIp)}`
+              );
+            }
+          }
+
           const response = Buffer.from(
             `VA_SERVER ${JSON.stringify({
-              ip: advertiseIp,
+              ip: replyAdvertiseIp,
               port: actualHttpAddress.port
             })}`
           );
@@ -1082,7 +1175,7 @@ export function createValueArchiveServer(options = {}) {
                 `UDP discovery reply remote=${JSON.stringify(
                   `${remote.address}:${remote.port}`
                 )} advertised=${JSON.stringify(
-                  `${advertiseIp}:${actualHttpAddress.port}`
+                  `${replyAdvertiseIp}:${actualHttpAddress.port}`
                 )}`
               );
             }

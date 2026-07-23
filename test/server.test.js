@@ -8,7 +8,11 @@ import test from "node:test";
 
 import WebSocket from "ws";
 
-import { createValueArchiveServer } from "../src/server.js";
+import {
+  createValueArchiveServer,
+  isIpv4InSubnet,
+  selectAdvertiseIp
+} from "../src/server.js";
 
 const sequenceFixture = {
   sequenceId: "performance-v1",
@@ -362,6 +366,109 @@ async function discover(udpPort) {
     socket.close();
   }
 }
+
+test("isIpv4InSubnet matches IPv4 subnet boundaries", () => {
+  const interfaceAddress = "192.168.50.114";
+  const netmask = "255.255.255.0";
+
+  assert.equal(
+    isIpv4InSubnet("192.168.50.42", interfaceAddress, netmask),
+    true
+  );
+  assert.equal(
+    isIpv4InSubnet("192.168.51.42", interfaceAddress, netmask),
+    false
+  );
+  assert.equal(
+    isIpv4InSubnet("192.168.50.0", interfaceAddress, netmask),
+    true
+  );
+  assert.equal(
+    isIpv4InSubnet("192.168.50.255", interfaceAddress, netmask),
+    true
+  );
+  assert.equal(
+    isIpv4InSubnet(
+      "100.71.101.118",
+      "100.71.101.118",
+      "255.255.255.255"
+    ),
+    true
+  );
+  assert.equal(
+    isIpv4InSubnet(
+      "100.71.101.119",
+      "100.71.101.118",
+      "255.255.255.255"
+    ),
+    false
+  );
+});
+
+test("isIpv4InSubnet rejects malformed, IPv6, and non-string inputs", () => {
+  const validAddress = "192.168.50.114";
+  const validMask = "255.255.255.0";
+  const cases = [
+    ["not-an-ip", validAddress, validMask],
+    [validAddress, "not-an-ip", validMask],
+    [validAddress, validAddress, "not-a-mask"],
+    ["2001:db8::1", validAddress, validMask],
+    [validAddress, "2001:db8::1", validMask],
+    [validAddress, validAddress, "ffff:ffff:ffff:ffff::"],
+    [42, validAddress, validMask],
+    [validAddress, null, validMask],
+    [validAddress, validAddress, {}]
+  ];
+
+  for (const args of cases) {
+    assert.equal(isIpv4InSubnet(...args), false);
+  }
+});
+
+test("selectAdvertiseIp prioritizes override, requester subnet, and fallbacks", () => {
+  const candidates = [
+    {
+      address: "100.71.101.118",
+      netmask: "255.255.255.255",
+      cidr: "100.71.101.118/32"
+    },
+    {
+      address: "192.168.50.114",
+      netmask: "255.255.255.0",
+      cidr: "192.168.50.114/24"
+    }
+  ];
+
+  assert.equal(
+    selectAdvertiseIp({
+      configuredAdvertiseIp: "203.0.113.10",
+      requesterAddress: "192.168.50.42",
+      candidates
+    }),
+    "203.0.113.10"
+  );
+  assert.equal(
+    selectAdvertiseIp({
+      requesterAddress: "192.168.50.42",
+      candidates
+    }),
+    "192.168.50.114"
+  );
+  assert.equal(
+    selectAdvertiseIp({
+      requesterAddress: "198.51.100.23",
+      candidates
+    }),
+    "100.71.101.118"
+  );
+  assert.equal(
+    selectAdvertiseIp({
+      requesterAddress: "198.51.100.23",
+      candidates: []
+    }),
+    "127.0.0.1"
+  );
+});
 
 test("uses TCP port 8765 when no HTTP port option or VA_PORT is set", async (t) => {
   await withVaPort(undefined, async () => {
