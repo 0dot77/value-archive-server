@@ -89,6 +89,7 @@ function startDashboard() {
   const connectionStatus = document.querySelector("#connection-status");
   const connectionPill = connectionStatus.closest(".connection-pill");
   const serverError = document.querySelector("#server-error");
+  const unassignedBanner = document.querySelector("#unassigned-banner");
   const unassignedList = document.querySelector("#unassigned-devices");
   const sequenceSteps = document.querySelector("#sequence-steps");
   const sequencePanel = document.querySelector("#sequence-panel");
@@ -280,6 +281,8 @@ function startDashboard() {
   }
 
   function renderUnassigned() {
+    const unassigned = state.devices.filter((device) => device?.role == null);
+    unassignedBanner.hidden = unassigned.length === 0;
     const renderKey = makeUnassignedRenderKey(
       state.devices,
       state.connection
@@ -289,7 +292,6 @@ function startDashboard() {
     }
     renderedUnassignedKey = renderKey;
     unassignedList.replaceChildren();
-    const unassigned = state.devices.filter((device) => device?.role == null);
     if (unassigned.length === 0) {
       const item = document.createElement("li");
       item.className = "empty-state";
@@ -536,6 +538,16 @@ function startDashboard() {
       return;
     }
 
+    if (button.dataset.action === "toggle-health") {
+      const details = document.querySelector(
+        `#${button.getAttribute("aria-controls")}`
+      );
+      const expanded = details.hidden;
+      details.hidden = !expanded;
+      button.setAttribute("aria-expanded", String(expanded));
+      button.textContent = expanded ? "상세 ▴" : "상세 ▾";
+      return;
+    }
     if (button.dataset.action === "assign-role") {
       sendJson({
         t: "assignRole",

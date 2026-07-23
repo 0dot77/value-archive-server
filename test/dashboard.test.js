@@ -15,6 +15,7 @@ import {
 
 const htmlPath = new URL("../public/index.html", import.meta.url);
 const appPath = new URL("../public/app.js", import.meta.url);
+const stylePath = new URL("../public/style.css", import.meta.url);
 
 test("maps same-origin HTTP and HTTPS locations to the /ws WebSocket URL", () => {
   assert.equal(
@@ -164,6 +165,81 @@ test("provides semantic A/B, unassigned, sequence, and preview-control hooks", a
   ]) {
     assert.match(html, new RegExp(hook), `missing hook: ${hook}`);
   }
+});
+
+test("provides the compact cue-console structure and labels", async () => {
+  const html = await readFile(htmlPath, "utf8");
+
+  assert.match(html, /class="[^"]*\boperator-bar\b/);
+  assert.match(html, /id="health-a-details"[^>]*\bhidden\b/);
+  assert.match(html, /id="health-b-details"[^>]*\bhidden\b/);
+  assert.match(
+    html,
+    /data-action="toggle-health"[^>]*aria-expanded="false"/
+  );
+  assert.match(html, /id="unassigned-banner"[^>]*\bhidden\b/);
+  assert.match(html, />⏵ Start</);
+  assert.match(html, />⏹ Stop</);
+  assert.match(html, />◀ Prev</);
+  assert.match(html, />▶ Next</);
+});
+
+test("constrains the desktop console and restores mobile scrolling", async () => {
+  const css = await readFile(stylePath, "utf8");
+
+  assert.match(
+    css,
+    /body\s*\{[^}]*min-height:\s*100dvh;[^}]*height:\s*100dvh;[^}]*overflow:\s*hidden;[^}]*display:\s*grid;[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);/s
+  );
+  assert.match(
+    css,
+    /\.role-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s
+  );
+  assert.match(
+    css,
+    /\.preview-stage img\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*object-fit:\s*contain;/s
+  );
+  assert.match(
+    css,
+    /\.sequence-steps\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*nowrap;/s
+  );
+  assert.match(
+    css,
+    /\.health-details:not\(\[hidden\]\)\s*\{[^}]*position:\s*absolute;/s
+  );
+  assert.match(
+    css,
+    /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?body\s*\{[^}]*height:\s*auto;[^}]*overflow-y:\s*auto;/s
+  );
+});
+
+test("toggles health details through the delegated click handler", async () => {
+  const source = await readFile(appPath, "utf8");
+  const clickHandler = source.match(
+    /function handleClick\(event\)\s*\{[\s\S]*?\n  \}\n\n  function handleChange/
+  )?.[0];
+
+  assert.ok(clickHandler, "missing delegated click handler");
+  assert.match(
+    clickHandler,
+    /button\.dataset\.action === "toggle-health"/
+  );
+  assert.match(clickHandler, /const expanded = details\.hidden;/);
+  assert.match(clickHandler, /details\.hidden = !expanded;/);
+  assert.match(
+    clickHandler,
+    /button\.setAttribute\("aria-expanded", String\(expanded\)\);/
+  );
+  assert.match(
+    clickHandler,
+    /button\.textContent = expanded \? "상세 ▴" : "상세 ▾";/
+  );
+  assert.doesNotMatch(source, /(?:local|session)Storage/);
+  assert.equal(
+    (source.match(/\bsetInterval\s*\(/g) ?? []).length,
+    1,
+    "health toggles must not add another interval"
+  );
 });
 
 test("loads one local module script and contains no external references", async () => {

@@ -8,21 +8,72 @@
     <link rel="stylesheet" href="./style.css">
   </head>
   <body>
-    <header class="site-header">
-      <div>
+    <header class="site-header operator-bar">
+      <div class="brand">
         <p class="eyebrow">VALUE ARCHIVE</p>
         <h1>퍼포먼스 컨트롤</h1>
       </div>
+
+      <section id="sequence-panel" class="sequence-panel" aria-labelledby="sequence-title">
+        <div class="sequence-heading">
+          <div>
+            <p class="section-kicker">SEQUENCE</p>
+            <h2 id="sequence-title">진행 제어</h2>
+          </div>
+          <span class="status-badge is-stopped" data-seq-field="status">STOPPED</span>
+        </div>
+
+        <dl class="sequence-current">
+          <div>
+            <dt>인덱스</dt>
+            <dd data-seq-field="index">—</dd>
+          </div>
+          <div>
+            <dt>Step ID</dt>
+            <dd data-seq-field="step-id">—</dd>
+          </div>
+          <div>
+            <dt>제목</dt>
+            <dd data-seq-field="title">—</dd>
+          </div>
+        </dl>
+
+        <div class="sequence-controls" aria-label="시퀀스 제어">
+          <button type="button" data-seq-action="start" data-server-control disabled>⏵ Start</button>
+          <button type="button" data-seq-action="stop" data-server-control disabled>⏹ Stop</button>
+          <button type="button" data-seq-action="prev" data-server-control disabled>◀ Prev</button>
+          <button type="button" data-seq-action="next" data-server-control disabled>▶ Next</button>
+        </div>
+
+        <h3 class="steps-title">전체 스텝</h3>
+        <ol id="sequence-steps" class="sequence-steps">
+          <li class="empty-state">시퀀스 메타데이터 대기 중</li>
+        </ol>
+      </section>
+
       <div class="connection-pill" aria-live="polite">
         <span class="connection-dot" aria-hidden="true"></span>
         <span id="connection-status">연결 중</span>
       </div>
+
+      <p id="server-error" class="server-error" role="status" hidden></p>
     </header>
 
-    <p id="server-error" class="server-error" role="status" hidden></p>
-
     <main>
-      <section aria-labelledby="devices-title">
+      <aside id="unassigned-banner" class="unassigned-banner" aria-labelledby="unassigned-title" hidden>
+        <div class="section-heading compact">
+          <div>
+            <p class="section-kicker">ASSIGNMENT</p>
+            <h2 id="unassigned-title">미지정 기기</h2>
+          </div>
+          <p>A 또는 B 역할을 즉시 배정합니다.</p>
+        </div>
+        <ul id="unassigned-devices" class="unassigned-list">
+          <li class="empty-state">미지정 기기가 없습니다.</li>
+        </ul>
+      </aside>
+
+      <section class="device-console" aria-labelledby="devices-title">
         <div class="section-heading">
           <div>
             <p class="section-kicker">LIVE DEVICES</p>
@@ -38,55 +89,17 @@
                 <p class="role-label">ROLE</p>
                 <h3 id="role-a-title">A</h3>
               </div>
-              <span class="status-badge is-offline" data-field="status">OFFLINE</span>
+              <div class="card-status">
+                <span class="status-badge is-offline" data-field="status">OFFLINE</span>
+                <button
+                  type="button"
+                  class="health-toggle"
+                  data-action="toggle-health"
+                  aria-controls="health-a-details"
+                  aria-expanded="false"
+                >상세 ▾</button>
+              </div>
             </header>
-
-            <dl class="telemetry-grid">
-              <div class="wide">
-                <dt>기기 ID</dt>
-                <dd data-field="device-id">미할당</dd>
-              </div>
-              <div>
-                <dt>RTT</dt>
-                <dd data-field="rtt">—</dd>
-              </div>
-              <div>
-                <dt>FPS</dt>
-                <dd data-field="fps">—</dd>
-              </div>
-              <div>
-                <dt>CV Hz</dt>
-                <dd data-field="cv-hz">—</dd>
-              </div>
-              <div>
-                <dt>CV ms</dt>
-                <dd data-field="cv-ms">—</dd>
-              </div>
-              <div>
-                <dt>배터리</dt>
-                <dd data-field="battery">—</dd>
-              </div>
-              <div>
-                <dt>마커 ID</dt>
-                <dd data-field="markers">—</dd>
-              </div>
-              <div class="wide">
-                <dt>명함 ↔ 명함</dt>
-                <dd data-field="marker-to-marker">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 자기 명함</dt>
-                <dd data-field="self-to-own">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 상대 명함</dt>
-                <dd data-field="self-to-other">—</dd>
-              </div>
-              <div class="wide">
-                <dt>마지막 Health</dt>
-                <dd data-field="health-age">—</dd>
-              </div>
-            </dl>
 
             <figure class="preview">
               <div class="preview-stage">
@@ -133,6 +146,55 @@
                 </label>
               </fieldset>
             </div>
+
+            <div id="health-a-details" class="health-details" data-health-details="A" hidden>
+              <dl class="telemetry-grid">
+                <div class="wide">
+                  <dt>기기 ID</dt>
+                  <dd data-field="device-id">미할당</dd>
+                </div>
+                <div>
+                  <dt>RTT</dt>
+                  <dd data-field="rtt">—</dd>
+                </div>
+                <div>
+                  <dt>FPS</dt>
+                  <dd data-field="fps">—</dd>
+                </div>
+                <div>
+                  <dt>CV Hz</dt>
+                  <dd data-field="cv-hz">—</dd>
+                </div>
+                <div>
+                  <dt>CV ms</dt>
+                  <dd data-field="cv-ms">—</dd>
+                </div>
+                <div>
+                  <dt>배터리</dt>
+                  <dd data-field="battery">—</dd>
+                </div>
+                <div>
+                  <dt>마커 ID</dt>
+                  <dd data-field="markers">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>명함 ↔ 명함</dt>
+                  <dd data-field="marker-to-marker">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 자기 명함</dt>
+                  <dd data-field="self-to-own">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 상대 명함</dt>
+                  <dd data-field="self-to-other">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>마지막 Health</dt>
+                  <dd data-field="health-age">—</dd>
+                </div>
+              </dl>
+            </div>
           </article>
 
           <article class="role-card" data-role-card="B" aria-labelledby="role-b-title">
@@ -141,55 +203,17 @@
                 <p class="role-label">ROLE</p>
                 <h3 id="role-b-title">B</h3>
               </div>
-              <span class="status-badge is-offline" data-field="status">OFFLINE</span>
+              <div class="card-status">
+                <span class="status-badge is-offline" data-field="status">OFFLINE</span>
+                <button
+                  type="button"
+                  class="health-toggle"
+                  data-action="toggle-health"
+                  aria-controls="health-b-details"
+                  aria-expanded="false"
+                >상세 ▾</button>
+              </div>
             </header>
-
-            <dl class="telemetry-grid">
-              <div class="wide">
-                <dt>기기 ID</dt>
-                <dd data-field="device-id">미할당</dd>
-              </div>
-              <div>
-                <dt>RTT</dt>
-                <dd data-field="rtt">—</dd>
-              </div>
-              <div>
-                <dt>FPS</dt>
-                <dd data-field="fps">—</dd>
-              </div>
-              <div>
-                <dt>CV Hz</dt>
-                <dd data-field="cv-hz">—</dd>
-              </div>
-              <div>
-                <dt>CV ms</dt>
-                <dd data-field="cv-ms">—</dd>
-              </div>
-              <div>
-                <dt>배터리</dt>
-                <dd data-field="battery">—</dd>
-              </div>
-              <div>
-                <dt>마커 ID</dt>
-                <dd data-field="markers">—</dd>
-              </div>
-              <div class="wide">
-                <dt>명함 ↔ 명함</dt>
-                <dd data-field="marker-to-marker">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 자기 명함</dt>
-                <dd data-field="self-to-own">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 상대 명함</dt>
-                <dd data-field="self-to-other">—</dd>
-              </div>
-              <div class="wide">
-                <dt>마지막 Health</dt>
-                <dd data-field="health-age">—</dd>
-              </div>
-            </dl>
 
             <figure class="preview">
               <div class="preview-stage">
@@ -236,58 +260,57 @@
                 </label>
               </fieldset>
             </div>
+
+            <div id="health-b-details" class="health-details" data-health-details="B" hidden>
+              <dl class="telemetry-grid">
+                <div class="wide">
+                  <dt>기기 ID</dt>
+                  <dd data-field="device-id">미할당</dd>
+                </div>
+                <div>
+                  <dt>RTT</dt>
+                  <dd data-field="rtt">—</dd>
+                </div>
+                <div>
+                  <dt>FPS</dt>
+                  <dd data-field="fps">—</dd>
+                </div>
+                <div>
+                  <dt>CV Hz</dt>
+                  <dd data-field="cv-hz">—</dd>
+                </div>
+                <div>
+                  <dt>CV ms</dt>
+                  <dd data-field="cv-ms">—</dd>
+                </div>
+                <div>
+                  <dt>배터리</dt>
+                  <dd data-field="battery">—</dd>
+                </div>
+                <div>
+                  <dt>마커 ID</dt>
+                  <dd data-field="markers">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>명함 ↔ 명함</dt>
+                  <dd data-field="marker-to-marker">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 자기 명함</dt>
+                  <dd data-field="self-to-own">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 상대 명함</dt>
+                  <dd data-field="self-to-other">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>마지막 Health</dt>
+                  <dd data-field="health-age">—</dd>
+                </div>
+              </dl>
+            </div>
           </article>
         </div>
-      </section>
-
-      <section class="panel" aria-labelledby="unassigned-title">
-        <div class="section-heading compact">
-          <div>
-            <p class="section-kicker">ASSIGNMENT</p>
-            <h2 id="unassigned-title">미지정 기기</h2>
-          </div>
-          <p>A 또는 B 역할을 즉시 배정합니다.</p>
-        </div>
-        <ul id="unassigned-devices" class="unassigned-list">
-          <li class="empty-state">미지정 기기가 없습니다.</li>
-        </ul>
-      </section>
-
-      <section id="sequence-panel" class="panel sequence-panel" aria-labelledby="sequence-title">
-        <div class="section-heading compact">
-          <div>
-            <p class="section-kicker">SEQUENCE</p>
-            <h2 id="sequence-title">진행 제어</h2>
-          </div>
-          <span class="status-badge is-stopped" data-seq-field="status">STOPPED</span>
-        </div>
-
-        <dl class="sequence-current">
-          <div>
-            <dt>인덱스</dt>
-            <dd data-seq-field="index">—</dd>
-          </div>
-          <div>
-            <dt>Step ID</dt>
-            <dd data-seq-field="step-id">—</dd>
-          </div>
-          <div>
-            <dt>제목</dt>
-            <dd data-seq-field="title">—</dd>
-          </div>
-        </dl>
-
-        <div class="sequence-controls" aria-label="시퀀스 제어">
-          <button type="button" data-seq-action="start" data-server-control disabled>Start</button>
-          <button type="button" data-seq-action="stop" data-server-control disabled>Stop</button>
-          <button type="button" data-seq-action="prev" data-server-control disabled>Prev</button>
-          <button type="button" data-seq-action="next" data-server-control disabled>Next</button>
-        </div>
-
-        <h3 class="steps-title">전체 스텝</h3>
-        <ol id="sequence-steps" class="sequence-steps">
-          <li class="empty-state">시퀀스 메타데이터 대기 중</li>
-        </ol>
       </section>
     </main>
 
