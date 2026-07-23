@@ -184,6 +184,30 @@ test("provides the compact cue-console structure and labels", async () => {
   assert.match(html, />▶ Next</);
 });
 
+test("keeps each role device identity outside collapsed health details", async () => {
+  const html = await readFile(htmlPath, "utf8");
+
+  for (const role of ["A", "B"]) {
+    const card = html.match(
+      new RegExp(
+        `<article[^>]*data-role-card="${role}"[\\s\\S]*?</article>`
+      )
+    )?.[0];
+
+    assert.ok(card, `missing role ${role} card`);
+    assert.equal(
+      (card.match(/data-field="device-id"/g) ?? []).length,
+      1,
+      `role ${role} must contain exactly one device-id field`
+    );
+    assert.ok(
+      card.indexOf('data-field="device-id"') <
+        card.indexOf(`data-health-details="${role}"`),
+      `role ${role} device-id must precede its collapsed health details`
+    );
+  }
+});
+
 test("constrains the desktop console and restores mobile scrolling", async () => {
   const css = await readFile(stylePath, "utf8");
 

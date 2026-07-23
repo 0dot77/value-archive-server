@@ -467,10 +467,28 @@ main {
 }
 
 .preview figcaption {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
   margin-top: 0.25rem;
   color: var(--muted);
   font-size: 0.72rem;
   text-align: right;
+}
+
+.preview figcaption > span:first-child {
+  min-width: 0;
+  text-align: left;
+}
+
+.preview figcaption [data-field="device-id"] {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.preview figcaption > [data-field="frame-age"] {
+  flex: 0 0 auto;
 }
 
 .preview-controls {
