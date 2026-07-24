@@ -1,5 +1,4 @@
 const ROLES = ["A", "B"];
-const PREVIEW_SOURCES = new Set(["eye", "pca"]);
 
 export const RECONNECT_DELAY_MS = 2000;
 
@@ -102,7 +101,6 @@ function startDashboard() {
     roleOwners: { A: null, B: null },
     sequence: null,
     seqState: null,
-    previewSources: { A: "pca", B: "pca" },
     previews: {
       A: { url: null, receivedAtMs: null },
       B: { url: null, receivedAtMs: null }
@@ -255,12 +253,6 @@ function startDashboard() {
 
     const refresh = card.querySelector('[data-action="request-frame"]');
     refresh.disabled = !online;
-    for (const input of card.querySelectorAll(
-      '[data-action="preview-source"]'
-    )) {
-      input.disabled = !online;
-      input.checked = input.value === state.previewSources[role];
-    }
   }
 
   function renderRoleCards() {
@@ -575,20 +567,6 @@ function startDashboard() {
     }
   }
 
-  function handleChange(event) {
-    const input = event.target;
-    if (input.dataset?.action !== "preview-source" || !input.checked) {
-      return;
-    }
-    const role = input.dataset.role;
-    const source = input.value;
-    if (!ROLES.includes(role) || !PREVIEW_SOURCES.has(source)) {
-      return;
-    }
-    state.previewSources[role] = source;
-    sendJson({ t: "previewSource", role, source });
-  }
-
   function teardown() {
     unloading = true;
     if (reconnectTimer !== null) {
@@ -604,7 +582,6 @@ function startDashboard() {
   }
 
   document.addEventListener("click", handleClick);
-  document.addEventListener("change", handleChange);
   const ageTimer = window.setInterval(renderRelativeAges, 1000);
   window.addEventListener("beforeunload", teardown, { once: true });
 

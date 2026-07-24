@@ -153,8 +153,7 @@ test("provides semantic A/B, unassigned, sequence, and preview-control hooks", a
   for (const hook of [
     'data-role-card="A"',
     'data-role-card="B"',
-    'data-preview-source="A"',
-    'data-preview-source="B"',
+    'data-action="request-frame"',
     'id="unassigned-devices"',
     'id="sequence-panel"',
     'id="sequence-steps"',
@@ -244,7 +243,7 @@ test("constrains the desktop console and restores mobile scrolling", async () =>
 test("toggles health details through the delegated click handler", async () => {
   const source = await readFile(appPath, "utf8");
   const clickHandler = source.match(
-    /function handleClick\(event\)\s*\{[\s\S]*?\n  \}\n\n  function handleChange/
+    /function handleClick\(event\)\s*\{[\s\S]*?\n  \}\n\n  function teardown/
   )?.[0];
 
   assert.ok(clickHandler, "missing delegated click handler");
