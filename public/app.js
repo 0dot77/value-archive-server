@@ -956,10 +956,13 @@ function startDashboard() {
   }
 
   function setCueField(panel, name, value) {
-    setText(
-      panel.querySelector(`[data-cue-field="${name}"]`),
-      displayValue(value)
-    );
+    const element = panel.querySelector(`[data-cue-field="${name}"]`);
+    const rendered = displayValue(value);
+    setText(element, rendered);
+    const detailRow = element.closest(".cue-details > div");
+    if (detailRow) {
+      detailRow.hidden = rendered === "—";
+    }
   }
 
   function musicCueText(musicCue) {

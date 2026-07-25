@@ -25,6 +25,73 @@ import {
 const htmlPath = new URL("../public/index.html", import.meta.url);
 const appPath = new URL("../public/app.js", import.meta.url);
 const stylePath = new URL("../public/style.css", import.meta.url);
+const htmlVoidElements = new Set([
+  "area",
+  "base",
+  "br",
+  "col",
+  "embed",
+  "hr",
+  "img",
+  "input",
+  "link",
+  "meta",
+  "param",
+  "source",
+  "track",
+  "wbr"
+]);
+
+function directChildOpeningTags(html, parentPattern) {
+  const parent = html.match(parentPattern);
+  if (!parent || parent.index === undefined) {
+    return [];
+  }
+
+  const parentTag = parent[0].match(/^<([a-z][\w:-]*)\b/i)?.[1]?.toLowerCase();
+  const tagPattern =
+    /<!--[\s\S]*?-->|<![^>]*>|<\/?([a-z][\w:-]*)\b[^>]*>/gi;
+  tagPattern.lastIndex = parent.index + parent[0].length;
+  const children = [];
+  let depth = 0;
+  let match;
+
+  while ((match = tagPattern.exec(html)) !== null) {
+    if (!match[1]) {
+      continue;
+    }
+    const opening = match[0];
+    const tag = match[1].toLowerCase();
+    if (opening.startsWith("</")) {
+      if (depth === 0 && tag === parentTag) {
+        return children;
+      }
+      depth = Math.max(0, depth - 1);
+      continue;
+    }
+
+    if (depth === 0) {
+      children.push(opening);
+    }
+    if (!htmlVoidElements.has(tag) && !opening.endsWith("/>")) {
+      depth += 1;
+    }
+  }
+
+  return children;
+}
+
+function openingTagShape(opening) {
+  const tag = opening.match(/^<([a-z][\w:-]*)\b/i)?.[1]?.toLowerCase();
+  const id = opening.match(/\bid="([^"]*)"/i)?.[1] ?? null;
+  const classNames =
+    opening
+      .match(/\bclass="([^"]*)"/i)?.[1]
+      ?.trim()
+      .split(/\s+/)
+      .filter(Boolean) ?? [];
+  return { tag, id, classNames };
+}
 
 test("maps same-origin HTTP and HTTPS locations to the /ws WebSocket URL", () => {
   assert.equal(
@@ -366,6 +433,7 @@ test("loads the canonical demo sequence from static or local read-only state", a
 });
 
 test("scrolls the current cue inside its list without moving outer views", () => {
+  const cueSheetScroller = { scrollTop: 12 };
   const outerScroller = { scrollLeft: 4, scrollTop: 30 };
   const viewport = {
     scrollX: 7,
@@ -379,6 +447,7 @@ test("scrolls the current cue inside its list without moving outer views", () =>
   const currentRow = {
     scrollIntoView(options) {
       receivedOptions = options;
+      cueSheetScroller.scrollTop = 240;
       outerScroller.scrollLeft = 400;
       outerScroller.scrollTop = 900;
       viewport.scrollX = 70;
@@ -391,6 +460,7 @@ test("scrolls the current cue inside its list without moving outer views", () =>
     true
   );
   assert.deepEqual(receivedOptions, { block: "nearest" });
+  assert.equal(cueSheetScroller.scrollTop, 240);
   assert.deepEqual(outerScroller, { scrollLeft: 4, scrollTop: 30 });
   assert.equal(viewport.scrollX, 7);
   assert.equal(viewport.scrollY, 11);
@@ -422,7 +492,30 @@ test("provides semantic A/B, unassigned, sequence, and preview-control hooks", a
 
 test("provides the compact cue-console structure and labels", async () => {
   const html = await readFile(htmlPath, "utf8");
+  const directChildren = directChildOpeningTags(
+    html,
+    /<main\b[^>]*class="[^"]*\bconsole-main\b[^"]*"[^>]*>/i
+  ).map(openingTagShape);
 
+  assert.deepEqual(
+    directChildren,
+    [
+      {
+        tag: "header",
+        id: "sequence-panel",
+        classNames: ["operator-bar"]
+      },
+      { tag: "section", id: null, classNames: ["cue-grid"] },
+      {
+        tag: "aside",
+        id: "unassigned-banner",
+        classNames: ["unassigned-banner"]
+      },
+      { tag: "section", id: "cue-sheet", classNames: ["cue-sheet"] },
+      { tag: "section", id: null, classNames: ["devices-panel"] }
+    ],
+    "console main must contain exactly the approved five direct children"
+  );
   assert.match(html, /class="[^"]*\boperator-bar\b/);
   assert.match(html, /id="health-a-details"[^>]*\bhidden\b/);
   assert.match(html, /id="health-b-details"[^>]*\bhidden\b/);
@@ -445,6 +538,34 @@ test("provides the compact cue-console structure and labels", async () => {
   ]) {
     assert.match(html, new RegExp(label), `missing cue label: ${label}`);
   }
+});
+
+test("keeps both cue panels' detail hooks while hiding rendered dashes", async () => {
+  const html = await readFile(htmlPath, "utf8");
+  const source = await readFile(appPath, "utf8");
+  const setter = source.match(
+    /function setCueField\(panel, name, value\)\s*\{[\s\S]*?\n  \}\n\n  function musicCueText/
+  )?.[0];
+
+  for (const name of ["xr", "ui", "vo", "sfx", "music", "note"]) {
+    assert.equal(
+      (html.match(new RegExp(`data-cue-field="${name}"`, "g")) ?? []).length,
+      2,
+      `${name} must remain addressable in NOW and ON DECK`
+    );
+  }
+  assert.equal(
+    (html.match(/data-vo-progress/g) ?? []).length,
+    1,
+    "NOW must retain its separate V.O progress section"
+  );
+  assert.ok(setter, "missing cue field renderer");
+  assert.match(setter, /displayValue\(value\)/);
+  assert.match(setter, /\.closest\("\.cue-details > div"\)/);
+  assert.match(
+    setter,
+    /\.hidden\s*=\s*(?=[^;\n]*["']—["'])[^;\n]*(?:===|==)[^;\n]*;/
+  );
 });
 
 test("keeps each role device identity outside collapsed health details", async () => {
@@ -476,48 +597,143 @@ test("keeps each role device identity outside collapsed health details", async (
   }
 });
 
-test("constrains the desktop console and restores mobile scrolling", async () => {
+test("lays out the desktop console with a sticky cue-sheet scroller", async () => {
   const css = await readFile(stylePath, "utf8");
+  const desktopEnd = css.indexOf("@media (max-width: 1099.98px)");
+  const desktop = css.slice(0, desktopEnd);
+  const body = desktop.match(/body\s*\{([^}]*)\}/s)?.[1];
+  const consoleMain = desktop.match(/\.console-main\s*\{([^}]*)\}/s)?.[1];
+  const operator = desktop.match(/\.operator-bar\s*\{([^}]*)\}/s)?.[1];
+  const cueSheet = desktop.match(/#cue-sheet\s*\{([^}]*)\}/s)?.[1];
+  const sequenceSteps = desktop.match(
+    /\.sequence-steps\s*\{([^}]*)\}/s
+  )?.[1];
 
+  assert.notEqual(
+    desktopEnd,
+    -1,
+    "missing fractional-safe 1099.98px stack breakpoint"
+  );
+  assert.ok(body, "missing desktop body rule");
+  assert.match(body, /min-height:\s*100dvh;/);
+  assert.match(body, /height:\s*100dvh;/);
+  assert.match(body, /overflow:\s*hidden;/);
+  assert.ok(consoleMain, "missing desktop console grid");
+  assert.match(consoleMain, /display:\s*grid;/);
+  assert.match(consoleMain, /height:\s*100dvh;/);
   assert.match(
-    css,
-    /body\s*\{[^}]*min-height:\s*100dvh;[^}]*height:\s*100dvh;[^}]*overflow:\s*hidden;[^}]*display:\s*grid;[^}]*grid-template-rows:\s*auto minmax\(0,\s*1fr\);/s
+    consoleMain,
+    /grid-template-columns:\s*minmax\(0,\s*1fr\)\s+clamp\(380px,\s*30vw,\s*420px\);/
   );
   assert.match(
-    css,
+    consoleMain,
+    /grid-template-areas:\s*"operator cue-sheet"\s*"cues cue-sheet"\s*"unassigned cue-sheet"\s*"devices cue-sheet";/
+  );
+  assert.match(consoleMain, /overflow-y:\s*auto;/);
+  assert.ok(operator, "missing compact desktop operator rule");
+  assert.match(operator, /grid-area:\s*operator;/);
+  assert.match(
+    operator,
+    /grid-template-columns:\s*minmax\(0,\s*[\d.]+fr\)\s+minmax\(1[45]rem,\s*[\d.]+fr\);/
+  );
+  assert.match(
+    operator,
+    /grid-template-areas:\s*"topline topline"\s*"transport music";/
+  );
+  assert.match(
+    desktop,
+    /\.cue-grid\s*\{[^}]*grid-area:\s*cues;[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s
+  );
+  assert.match(
+    desktop,
+    /#unassigned-banner\s*\{[^}]*grid-area:\s*unassigned;/s
+  );
+  assert.match(
+    desktop,
+    /\.devices-panel\s*\{[^}]*grid-area:\s*devices;/s
+  );
+  assert.ok(cueSheet, "missing desktop cue-sheet rule");
+  assert.match(cueSheet, /grid-area:\s*cue-sheet;/);
+  assert.match(cueSheet, /position:\s*sticky;/);
+  assert.match(cueSheet, /top:\s*1rem;/);
+  assert.match(cueSheet, /height:\s*calc\(100dvh - 2rem\);/);
+  assert.match(cueSheet, /max-height:\s*calc\(100dvh - 2rem\);/);
+  assert.match(cueSheet, /overflow-y:\s*auto;/);
+  assert.match(cueSheet, /margin-top:\s*0;/);
+  assert.ok(sequenceSteps, "missing desktop sequence list rule");
+  assert.match(sequenceSteps, /max-height:\s*none;/);
+  assert.match(sequenceSteps, /overflow:\s*visible;/);
+  assert.match(
+    desktop,
+    /\.transport-secondary button\s*\{[^}]*min-height:\s*44px;[^}]*padding:[^;]+;/s
+  );
+  assert.match(
+    desktop,
+    /\.next-cue\s*\{[^}]*min-height:\s*48px;/s
+  );
+  assert.match(
+    desktop,
+    /\.cue-panel--deck \.cue-copy__en\s*\{[^}]*font-size:\s*[^;]+;/s
+  );
+  assert.match(
+    desktop,
+    /\.cue-panel--deck \.cue-details > div\s*\{[^}]*padding:\s*[^;]+;/s
+  );
+  assert.match(
+    desktop,
     /\.role-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s
   );
   assert.match(
-    css,
-    /\.cue-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s
-  );
-  assert.match(
-    css,
-    /\.next-cue\s*\{[^}]*min-height:\s*64px;/s
-  );
-  assert.match(
-    css,
+    desktop,
     /\.preview-stage img\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*object-fit:\s*contain;/s
   );
   assert.match(
-    css,
-    /\.sequence-steps\s*\{[^}]*display:\s*grid;[^}]*max-height:[^;]+;[^}]*overflow-y:\s*auto;/s
-  );
-  assert.match(
-    css,
+    desktop,
     /\.health-details:not\(\[hidden\]\)\s*\{[^}]*position:\s*absolute;/s
   );
+});
+
+test("restores source-order scrolling below 1100px and one-column mobile cards", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const stackStart = css.indexOf("@media (max-width: 1099.98px)");
+  const mobileStart = css.indexOf("@media (max-width: 760px)");
+  const narrowStart = css.indexOf("@media (max-width: 460px)");
+  const stack = css.slice(stackStart, mobileStart);
+  const mobile = css.slice(mobileStart, narrowStart);
+
+  assert.notEqual(
+    stackStart,
+    -1,
+    "missing fractional-safe 1099.98px stack breakpoint"
+  );
+  assert.ok(mobileStart > stackStart, "760px rules must follow stack rules");
   assert.match(
-    css,
-    /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?body\s*\{[^}]*height:\s*auto;[^}]*overflow-y:\s*auto;/s
+    stack,
+    /body\s*\{[^}]*height:\s*auto;[^}]*overflow-y:\s*auto;/s
   );
   assert.match(
-    css,
-    /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?\.operator-bar\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*20;/s
+    stack,
+    /\.console-main\s*\{[^}]*display:\s*block;[^}]*height:\s*auto;[^}]*overflow:\s*visible;/s
   );
   assert.match(
-    css,
-    /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?\.cue-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s
+    stack,
+    /\.operator-bar\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*20;/s
+  );
+  assert.match(
+    stack,
+    /#cue-sheet\s*\{[^}]*position:\s*static;[^}]*height:\s*auto;[^}]*max-height:\s*none;[^}]*overflow:\s*visible;[^}]*margin-top:\s*0\.85rem;/s
+  );
+  assert.match(
+    stack,
+    /\.sequence-steps\s*\{[^}]*max-height:\s*min\(52vh,\s*36rem\);[^}]*overflow-y:\s*auto;/s
+  );
+  assert.match(
+    mobile,
+    /\.cue-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s
+  );
+  assert.match(
+    mobile,
+    /\.role-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s
   );
 });
 
