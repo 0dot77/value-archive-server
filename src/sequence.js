@@ -58,6 +58,41 @@ function normalizeTargets(targets, fieldPath) {
   return [...targets];
 }
 
+function normalizeMusic(music, fieldPath) {
+  if (music === undefined) {
+    return [];
+  }
+  if (!Array.isArray(music)) {
+    throw new TypeError(`${fieldPath} must be an array`);
+  }
+
+  const trackIds = new Set();
+
+  return music.map((track, index) => {
+    const trackPath = `${fieldPath}[${index}]`;
+    if (!isObject(track)) {
+      throw new TypeError(`${trackPath} must be an object`);
+    }
+
+    const trackId = requireNonEmptyString(
+      track.trackId,
+      `${trackPath}.trackId`
+    );
+    if (trackIds.has(trackId)) {
+      throw new TypeError(
+        `${trackPath}.trackId must be unique; duplicate ${trackId}`
+      );
+    }
+    trackIds.add(trackId);
+
+    return {
+      trackId,
+      label: requireNonEmptyString(track.label, `${trackPath}.label`),
+      file: requireNonEmptyString(track.file, `${trackPath}.file`)
+    };
+  });
+}
+
 function normalizeTrigger(trigger, fieldPath) {
   if (!isObject(trigger)) {
     throw new TypeError(`${fieldPath} must be an object`);
@@ -157,7 +192,8 @@ function normalizeSequence(sequence) {
     };
   });
 
-  return { sequenceId, steps };
+  const music = normalizeMusic(sequence.music, "music");
+  return { sequenceId, music, steps };
 }
 
 export async function loadSequence(filePath) {

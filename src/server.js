@@ -422,6 +422,7 @@ export function createValueArchiveServer(options = {}) {
   let registry;
   let sequence;
   let sequenceController;
+  let musicTracks;
   let httpServer;
   let webSocketServer;
   let udpSocket;
@@ -561,11 +562,28 @@ export function createValueArchiveServer(options = {}) {
       );
   }
 
+  function buildMusicState() {
+    if (!musicTracks) {
+      return null;
+    }
+
+    return {
+      tracks: musicTracks.map((track) => ({
+        trackId: track.trackId,
+        label: track.label,
+        file: track.file,
+        playing: track.playing,
+        startedAtServerMs: track.startedAtServerMs
+      }))
+    };
+  }
+
   function getState() {
     return {
       devices: buildDeviceList(),
       seqState: sequenceController ? sequenceController.getState() : null,
-      sequence: sequence ? clone(sequence) : null
+      sequence: sequence ? clone(sequence) : null,
+      musicState: buildMusicState()
     };
   }
 
@@ -592,6 +610,11 @@ export function createValueArchiveServer(options = {}) {
 
   function broadcastSequenceState(seqState) {
     const message = { t: "seqState", ...seqState };
+    forEachWelcomedClient((socket) => safeSendJson(socket, message));
+  }
+
+  function broadcastMusicState(musicState) {
+    const message = { t: "musicState", ...musicState };
     forEachWelcomedClient((socket) => safeSendJson(socket, message));
   }
 
@@ -679,6 +702,39 @@ export function createValueArchiveServer(options = {}) {
     return state;
   }
 
+  function runMusicCommand(trackId, action) {
+    if (action !== "play" && action !== "stop") {
+      throw new TypeError('action must be either "play" or "stop"');
+    }
+
+    const track = musicTracks?.find(
+      (candidate) => candidate.trackId === trackId
+    );
+    if (!track) {
+      throw new TypeError("trackId must identify a known music track");
+    }
+
+    if (action === "play") {
+      if (!track.playing) {
+        const startedAtServerMs = readNow();
+        track.playing = true;
+        track.startedAtServerMs = startedAtServerMs;
+      }
+    } else {
+      track.playing = false;
+      track.startedAtServerMs = null;
+    }
+
+    emitLog(
+      "info",
+      `Music action=${JSON.stringify(action)} ` +
+        `trackId=${JSON.stringify(trackId)}`
+    );
+    const musicState = buildMusicState();
+    broadcastMusicState(musicState);
+    return musicState;
+  }
+
   function sendSocketError(socket, code, message) {
     safeSendJson(socket, {
       t: "error",
@@ -733,7 +789,8 @@ export function createValueArchiveServer(options = {}) {
       t: "welcome",
       role,
       serverTimeMs: timestamp,
-      seqState: sequenceController.getState()
+      seqState: sequenceController.getState(),
+      musicState: buildMusicState()
     });
     if (role) {
       safeSendJson(socket, {
@@ -757,7 +814,8 @@ export function createValueArchiveServer(options = {}) {
       serverTimeMs: readNow(),
       devices: state.devices,
       seqState: state.seqState,
-      sequence: state.sequence
+      sequence: state.sequence,
+      musicState: state.musicState
     });
   }
 
@@ -793,6 +851,29 @@ export function createValueArchiveServer(options = {}) {
     }
 
     const device = devices.get(socket[CLIENT_CONTEXT].deviceId);
+    if (message.t === "voFinished") {
+      if (
+        typeof message.stepId !== "string" ||
+        message.stepId.trim().length === 0
+      ) {
+        return;
+      }
+
+      const role = registry.getRole(socket[CLIENT_CONTEXT].deviceId);
+      if (role === null) {
+        return;
+      }
+
+      const status = {
+        t: "voStatus",
+        stepId: message.stepId,
+        role,
+        finishedAtServerMs: readNow()
+      };
+      forEachDashboard((dashboard) => safeSendJson(dashboard, status));
+      return;
+    }
+
     if (message.t === "health") {
       const health = normalizeHealthMessage(message);
       if (!health) {
@@ -834,6 +915,10 @@ export function createValueArchiveServer(options = {}) {
 
         case "seqCommand":
           runSequenceCommand(message.action, message.stepIndex);
+          return;
+
+        case "musicCommand":
+          runMusicCommand(message.trackId, message.action);
           return;
 
         case "requestFrame": {
@@ -898,7 +983,9 @@ export function createValueArchiveServer(options = {}) {
           ? "INVALID_ASSIGNMENT"
           : message.t === "seqCommand"
             ? "INVALID_SEQUENCE_COMMAND"
-            : "INVALID_CONTROL";
+            : message.t === "musicCommand"
+              ? "INVALID_MUSIC_COMMAND"
+              : "INVALID_CONTROL";
       sendSocketError(socket, code, error.message);
     }
   }
@@ -1069,6 +1156,30 @@ export function createValueArchiveServer(options = {}) {
     }
   });
 
+  app.post("/api/music", (request, response) => {
+    try {
+      if (!isObject(request.body)) {
+        throw new TypeError("request body must be a JSON object");
+      }
+      const musicState = runMusicCommand(
+        request.body.trackId,
+        request.body.action
+      );
+      response.json({ ok: true, musicState });
+    } catch (error) {
+      const isValidationError = error instanceof TypeError;
+      response.status(isValidationError ? 400 : 500).json({
+        ok: false,
+        error: {
+          code: isValidationError
+            ? "INVALID_MUSIC_COMMAND"
+            : "MUSIC_COMMAND_FAILED",
+          message: error.message
+        }
+      });
+    }
+  });
+
   app.use(express.static(publicDirectory));
 
   app.use((error, _request, response, next) => {
@@ -1124,6 +1235,13 @@ export function createValueArchiveServer(options = {}) {
       await registry.load();
       sequence = await loadSequence(sequenceFilePath);
       sequenceController = createSequenceController(sequence, { now });
+      musicTracks = sequence.music.map((track) => ({
+        trackId: track.trackId,
+        label: track.label,
+        file: track.file,
+        playing: false,
+        startedAtServerMs: null
+      }));
       devices.clear();
       advertiseIp = selectStartupAdvertiseIp();
 

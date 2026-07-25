@@ -45,6 +45,24 @@ const validSequence = {
   ]
 };
 
+const validMusicCatalog = [
+  {
+    trackId: "amb_1_2",
+    label: "Ambient 1/2",
+    file: "music/ambient-1-2.mp3"
+  },
+  {
+    trackId: "amb_3",
+    label: "Ambient 3",
+    file: "music/ambient-3.mp3"
+  },
+  {
+    trackId: "ending",
+    label: "Ending",
+    file: "music/ending.mp3"
+  }
+];
+
 function clone(value) {
   return structuredClone(value);
 }
@@ -70,6 +88,102 @@ test("loads and normalizes the supplied v1 sequence schema", async (t) => {
     ...validSequence.steps[2],
     params: {}
   });
+});
+
+test("normalizes missing top-level music to an empty array", async (t) => {
+  const filePath = await writeSequenceFixture(t, validSequence);
+
+  const sequence = await loadSequence(filePath);
+
+  assert.deepEqual(sequence.music, []);
+});
+
+test("normalizes a three-track music catalog exactly and preserves order", async (t) => {
+  const document = clone(validSequence);
+  document.music = clone(validMusicCatalog);
+  const filePath = await writeSequenceFixture(t, document);
+
+  const sequence = await loadSequence(filePath);
+
+  assert.deepEqual(sequence.music, [
+    {
+      trackId: "amb_1_2",
+      label: "Ambient 1/2",
+      file: "music/ambient-1-2.mp3"
+    },
+    {
+      trackId: "amb_3",
+      label: "Ambient 3",
+      file: "music/ambient-3.mp3"
+    },
+    {
+      trackId: "ending",
+      label: "Ending",
+      file: "music/ending.mp3"
+    }
+  ]);
+});
+
+test("rejects malformed top-level music catalog shapes", async (t) => {
+  for (const [label, music, expectedPath] of [
+    ["non-array catalog", "amb_1_2", /music/],
+    ["null catalog", null, /music/],
+    ["non-object track", [null], /music\[0\]/]
+  ]) {
+    const document = clone(validSequence);
+    document.music = music;
+    const filePath = await writeSequenceFixture(t, document);
+
+    await assert.rejects(
+      loadSequence(filePath),
+      (error) => {
+        assert.ok(error instanceof TypeError);
+        assert.match(error.message, expectedPath);
+        return true;
+      },
+      label
+    );
+  }
+});
+
+test("rejects duplicate music track IDs with the duplicate field path", async (t) => {
+  const document = clone(validSequence);
+  document.music = clone(validMusicCatalog);
+  document.music[2].trackId = "amb_1_2";
+  const filePath = await writeSequenceFixture(t, document);
+
+  await assert.rejects(loadSequence(filePath), (error) => {
+    assert.ok(error instanceof TypeError);
+    assert.match(error.message, /music\[2\]\.trackId/);
+    assert.match(error.message, /duplicate|unique/i);
+    return true;
+  });
+});
+
+test("rejects blank or non-string music fields with exact indexed paths", async (t) => {
+  for (const [label, index, field, value, expectedPath] of [
+    ["blank trackId", 0, "trackId", " ", /music\[0\]\.trackId/],
+    ["non-string trackId", 1, "trackId", 12, /music\[1\]\.trackId/],
+    ["blank label", 2, "label", "", /music\[2\]\.label/],
+    ["non-string label", 0, "label", false, /music\[0\]\.label/],
+    ["blank file", 1, "file", " ", /music\[1\]\.file/],
+    ["non-string file", 2, "file", {}, /music\[2\]\.file/]
+  ]) {
+    const document = clone(validSequence);
+    document.music = clone(validMusicCatalog);
+    document.music[index][field] = value;
+    const filePath = await writeSequenceFixture(t, document);
+
+    await assert.rejects(
+      loadSequence(filePath),
+      (error) => {
+        assert.ok(error instanceof TypeError);
+        assert.match(error.message, expectedPath);
+        return true;
+      },
+      label
+    );
+  }
 });
 
 test("rejects malformed sequence IDs and step collections", async (t) => {

@@ -4,30 +4,30 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="color-scheme" content="dark">
-    <title>Value Archive · 퍼포먼스 대시보드</title>
+    <title>Value Archive · 큐 오퍼레이터 콘솔</title>
     <link rel="stylesheet" href="./style.css">
   </head>
   <body>
     <header id="sequence-panel" class="operator-bar">
-      <div class="bar-main">
+      <div class="transport-topline">
         <p class="brand">
           <span class="eyebrow">VALUE ARCHIVE</span>
-          퍼포먼스 컨트롤
+          CUE OPERATOR
         </p>
 
-        <div class="transport" role="group" aria-label="시퀀스 제어">
-          <button type="button" data-seq-action="start" data-server-control disabled>⏵ Start</button>
-          <button type="button" data-seq-action="stop" data-server-control disabled>⏹ Stop</button>
-          <button type="button" data-seq-action="prev" data-server-control disabled>◀ Prev</button>
-          <button type="button" data-seq-action="next" data-server-control disabled>▶ Next</button>
-        </div>
-
-        <p class="seq-now" aria-label="현재 스텝">
+        <div id="transport-status" class="transport-status" aria-live="polite">
           <span class="status-badge is-stopped" data-seq-field="status">STOPPED</span>
-          <span class="seq-index" data-seq-field="index">—</span>
-          <span class="seq-id" data-seq-field="step-id">—</span>
-          <span class="seq-title" data-seq-field="title">—</span>
-        </p>
+          <p id="cue-position" class="cue-position">
+            <span class="cue-position__label">CN</span>
+            <strong data-seq-field="cue-current">—</strong>
+            <span aria-hidden="true">/</span>
+            <span data-seq-field="cue-total">—</span>
+          </p>
+          <p class="current-scene" data-seq-field="scene">—</p>
+          <span class="visually-hidden" data-seq-field="index">—</span>
+          <span class="visually-hidden" data-seq-field="step-id">—</span>
+          <span class="visually-hidden" data-seq-field="title">—</span>
+        </div>
 
         <div class="connection-pill" aria-live="polite">
           <span class="connection-dot" aria-hidden="true"></span>
@@ -35,14 +35,155 @@
         </div>
       </div>
 
-      <ol id="sequence-steps" class="sequence-steps" aria-label="전체 스텝">
-        <li class="empty-state">시퀀스 메타데이터 대기 중</li>
-      </ol>
+      <div class="transport" role="group" aria-label="시퀀스 제어">
+        <div class="transport-secondary">
+          <button type="button" data-seq-action="start" data-server-control disabled>⏵ Start</button>
+          <button type="button" data-seq-action="stop" data-server-control disabled>⏹ Stop</button>
+          <button type="button" data-seq-action="prev" data-server-control disabled>◀ PREV</button>
+        </div>
+        <button
+          type="button"
+          class="next-cue"
+          data-seq-action="next"
+          data-server-control
+          disabled
+        >▶▶ NEXT CUE</button>
+      </div>
+
+      <section class="music-strip" aria-labelledby="music-strip-title">
+        <h2 id="music-strip-title">음악 채널</h2>
+        <div id="music-channels" class="music-channels">
+          <p class="music-empty">음악 채널 대기 중</p>
+        </div>
+      </section>
 
       <p id="server-error" class="server-error" role="status" hidden></p>
     </header>
 
-    <main>
+    <main class="console-main">
+      <section class="cue-grid" aria-label="현재 큐와 다음 큐">
+        <article class="cue-panel cue-panel--now" data-cue-panel="now">
+          <header class="cue-panel__header">
+            <div>
+              <p class="panel-kicker">CURRENT</p>
+              <h1>NOW</h1>
+            </div>
+            <p class="cue-identity">
+              CN <strong data-cue-field="cn">—</strong>
+              <span aria-hidden="true">·</span>
+              <span data-cue-field="scene">—</span>
+              <span aria-hidden="true">·</span>
+              <span data-cue-field="speaker">—</span>
+            </p>
+          </header>
+
+          <div data-cue-content>
+            <div class="cue-copy">
+              <p class="cue-copy__label">KR</p>
+              <p class="cue-copy__kr" data-cue-field="text-kr">—</p>
+              <p class="cue-copy__label">EN</p>
+              <p class="cue-copy__en" data-cue-field="text-en">—</p>
+            </div>
+
+            <dl class="cue-details">
+              <div>
+                <dt>🥽 XR</dt>
+                <dd data-cue-field="xr">—</dd>
+              </div>
+              <div>
+                <dt>🖥 UI</dt>
+                <dd data-cue-field="ui">—</dd>
+              </div>
+              <div>
+                <dt>🔊 V.O</dt>
+                <dd data-cue-field="vo">—</dd>
+              </div>
+              <div>
+                <dt>🔈 SFX</dt>
+                <dd data-cue-field="sfx">—</dd>
+              </div>
+              <div>
+                <dt>🎵 음악</dt>
+                <dd data-cue-field="music">—</dd>
+              </div>
+              <div>
+                <dt>📝 비고</dt>
+                <dd data-cue-field="note">—</dd>
+              </div>
+            </dl>
+
+            <section class="vo-progress" data-vo-progress hidden aria-label="V.O 진행">
+              <div class="vo-progress__heading">
+                <strong>V.O 진행</strong>
+                <span data-vo-status>경과</span>
+                <span class="vo-progress__time" data-vo-time>00:00</span>
+              </div>
+              <progress max="1" value="0" aria-label="V.O 재생 진행률"></progress>
+              <div class="vo-role-badges" aria-label="역할별 V.O 완료">
+                <span data-vo-role="A">A —</span>
+                <span data-vo-role="B">B —</span>
+              </div>
+            </section>
+          </div>
+
+          <p class="cue-terminal" data-cue-terminal hidden>큐 데이터 대기 중</p>
+        </article>
+
+        <article class="cue-panel cue-panel--deck" data-cue-panel="deck">
+          <header class="cue-panel__header">
+            <div>
+              <p class="panel-kicker">UP NEXT</p>
+              <h2>ON DECK</h2>
+            </div>
+            <p class="cue-identity">
+              CN <strong data-cue-field="cn">—</strong>
+              <span aria-hidden="true">·</span>
+              <span data-cue-field="scene">—</span>
+              <span aria-hidden="true">·</span>
+              <span data-cue-field="speaker">—</span>
+            </p>
+          </header>
+
+          <div data-cue-content>
+            <div class="cue-copy">
+              <p class="cue-copy__label">KR</p>
+              <p class="cue-copy__kr" data-cue-field="text-kr">—</p>
+              <p class="cue-copy__label">EN</p>
+              <p class="cue-copy__en" data-cue-field="text-en">—</p>
+            </div>
+
+            <dl class="cue-details">
+              <div>
+                <dt>🥽 XR</dt>
+                <dd data-cue-field="xr">—</dd>
+              </div>
+              <div>
+                <dt>🖥 UI</dt>
+                <dd data-cue-field="ui">—</dd>
+              </div>
+              <div>
+                <dt>🔊 V.O</dt>
+                <dd data-cue-field="vo">—</dd>
+              </div>
+              <div>
+                <dt>🔈 SFX</dt>
+                <dd data-cue-field="sfx">—</dd>
+              </div>
+              <div>
+                <dt>🎵 음악</dt>
+                <dd data-cue-field="music">—</dd>
+              </div>
+              <div>
+                <dt>📝 비고</dt>
+                <dd data-cue-field="note">—</dd>
+              </div>
+            </dl>
+          </div>
+
+          <p class="cue-terminal" data-cue-terminal hidden>마지막 큐</p>
+        </article>
+      </section>
+
       <aside id="unassigned-banner" class="unassigned-banner" aria-label="미지정 기기" hidden>
         <p class="banner-title">미지정 기기 — A 또는 B 역할을 지정하세요</p>
         <ul id="unassigned-devices" class="unassigned-list">
@@ -50,167 +191,190 @@
         </ul>
       </aside>
 
-      <div class="role-grid">
-        <article class="role-card" data-role-card="A" aria-labelledby="role-a-title">
-          <header class="card-header">
-            <h2 id="role-a-title" class="role-title">Quest A</h2>
-            <div class="card-status">
-              <span class="status-badge is-offline" data-field="status">OFFLINE</span>
-              <button
-                type="button"
-                class="compact-button"
-                data-action="request-frame"
-                data-role="A"
-                data-server-control
-                disabled
-              >새로고침</button>
-              <button
-                type="button"
-                class="health-toggle"
-                data-action="toggle-health"
-                aria-controls="health-a-details"
-                aria-expanded="false"
-              >상세 ▾</button>
-            </div>
-          </header>
-
-          <figure class="preview">
-            <div class="preview-stage">
-              <img data-preview-image alt="A 역할 Quest 프리뷰" hidden>
-              <p data-preview-placeholder>프레임 대기 중</p>
-            </div>
-            <figcaption>
-              <span>기기 <strong data-field="device-id">미할당</strong></span>
-              <span data-field="frame-age">마지막 프레임 —</span>
-            </figcaption>
-          </figure>
-
-          <div id="health-a-details" class="health-details" data-health-details="A" hidden>
-            <dl class="telemetry-grid">
-              <div>
-                <dt>RTT</dt>
-                <dd data-field="rtt">—</dd>
-              </div>
-              <div>
-                <dt>FPS</dt>
-                <dd data-field="fps">—</dd>
-              </div>
-              <div>
-                <dt>CV Hz</dt>
-                <dd data-field="cv-hz">—</dd>
-              </div>
-              <div>
-                <dt>CV ms</dt>
-                <dd data-field="cv-ms">—</dd>
-              </div>
-              <div>
-                <dt>배터리</dt>
-                <dd data-field="battery">—</dd>
-              </div>
-              <div>
-                <dt>마커 ID</dt>
-                <dd data-field="markers">—</dd>
-              </div>
-              <div class="wide">
-                <dt>명함 ↔ 명함</dt>
-                <dd data-field="marker-to-marker">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 자기 명함</dt>
-                <dd data-field="self-to-own">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 상대 명함</dt>
-                <dd data-field="self-to-other">—</dd>
-              </div>
-              <div class="wide">
-                <dt>마지막 Health</dt>
-                <dd data-field="health-age">—</dd>
-              </div>
-            </dl>
+      <section id="cue-sheet" class="cue-sheet" aria-labelledby="cue-sheet-title">
+        <header class="section-heading">
+          <div>
+            <p class="panel-kicker">SHOW FLOW</p>
+            <h2 id="cue-sheet-title">큐시트</h2>
           </div>
-        </article>
+          <p>씬을 펼치거나 큐 행을 눌러 이동합니다.</p>
+        </header>
+        <div id="sequence-steps" class="sequence-steps" aria-label="전체 큐">
+          <p class="empty-state">시퀀스 메타데이터 대기 중</p>
+        </div>
+      </section>
 
-        <article class="role-card" data-role-card="B" aria-labelledby="role-b-title">
-          <header class="card-header">
-            <h2 id="role-b-title" class="role-title">Quest B</h2>
-            <div class="card-status">
-              <span class="status-badge is-offline" data-field="status">OFFLINE</span>
-              <button
-                type="button"
-                class="compact-button"
-                data-action="request-frame"
-                data-role="B"
-                data-server-control
-                disabled
-              >새로고침</button>
-              <button
-                type="button"
-                class="health-toggle"
-                data-action="toggle-health"
-                aria-controls="health-b-details"
-                aria-expanded="false"
-              >상세 ▾</button>
-            </div>
-          </header>
-
-          <figure class="preview">
-            <div class="preview-stage">
-              <img data-preview-image alt="B 역할 Quest 프리뷰" hidden>
-              <p data-preview-placeholder>프레임 대기 중</p>
-            </div>
-            <figcaption>
-              <span>기기 <strong data-field="device-id">미할당</strong></span>
-              <span data-field="frame-age">마지막 프레임 —</span>
-            </figcaption>
-          </figure>
-
-          <div id="health-b-details" class="health-details" data-health-details="B" hidden>
-            <dl class="telemetry-grid">
-              <div>
-                <dt>RTT</dt>
-                <dd data-field="rtt">—</dd>
-              </div>
-              <div>
-                <dt>FPS</dt>
-                <dd data-field="fps">—</dd>
-              </div>
-              <div>
-                <dt>CV Hz</dt>
-                <dd data-field="cv-hz">—</dd>
-              </div>
-              <div>
-                <dt>CV ms</dt>
-                <dd data-field="cv-ms">—</dd>
-              </div>
-              <div>
-                <dt>배터리</dt>
-                <dd data-field="battery">—</dd>
-              </div>
-              <div>
-                <dt>마커 ID</dt>
-                <dd data-field="markers">—</dd>
-              </div>
-              <div class="wide">
-                <dt>명함 ↔ 명함</dt>
-                <dd data-field="marker-to-marker">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 자기 명함</dt>
-                <dd data-field="self-to-own">—</dd>
-              </div>
-              <div class="wide">
-                <dt>본인 ↔ 상대 명함</dt>
-                <dd data-field="self-to-other">—</dd>
-              </div>
-              <div class="wide">
-                <dt>마지막 Health</dt>
-                <dd data-field="health-age">—</dd>
-              </div>
-            </dl>
+      <section class="devices-panel" aria-labelledby="devices-title">
+        <header class="section-heading">
+          <div>
+            <p class="panel-kicker">QUEST MONITOR</p>
+            <h2 id="devices-title">기기 / 프리뷰</h2>
           </div>
-        </article>
-      </div>
+          <p>역할별 연결 상태와 텔레메트리</p>
+        </header>
+
+        <div class="role-grid">
+          <article class="role-card" data-role-card="A" aria-labelledby="role-a-title">
+            <header class="card-header">
+              <h2 id="role-a-title" class="role-title">Quest A</h2>
+              <div class="card-status">
+                <span class="status-badge is-offline" data-field="status">OFFLINE</span>
+                <button
+                  type="button"
+                  class="compact-button"
+                  data-action="request-frame"
+                  data-role="A"
+                  data-server-control
+                  disabled
+                >새로고침</button>
+                <button
+                  type="button"
+                  class="health-toggle"
+                  data-action="toggle-health"
+                  aria-controls="health-a-details"
+                  aria-expanded="false"
+                >상세 ▾</button>
+              </div>
+            </header>
+
+            <figure class="preview">
+              <div class="preview-stage">
+                <img data-preview-image alt="A 역할 Quest 프리뷰" hidden>
+                <p data-preview-placeholder>프레임 대기 중</p>
+              </div>
+              <figcaption>
+                <span>기기 <strong data-field="device-id">미할당</strong></span>
+                <span data-field="frame-age">마지막 프레임 —</span>
+              </figcaption>
+            </figure>
+
+            <div id="health-a-details" class="health-details" data-health-details="A" hidden>
+              <dl class="telemetry-grid">
+                <div>
+                  <dt>RTT</dt>
+                  <dd data-field="rtt">—</dd>
+                </div>
+                <div>
+                  <dt>FPS</dt>
+                  <dd data-field="fps">—</dd>
+                </div>
+                <div>
+                  <dt>CV Hz</dt>
+                  <dd data-field="cv-hz">—</dd>
+                </div>
+                <div>
+                  <dt>CV ms</dt>
+                  <dd data-field="cv-ms">—</dd>
+                </div>
+                <div>
+                  <dt>배터리</dt>
+                  <dd data-field="battery">—</dd>
+                </div>
+                <div>
+                  <dt>마커 ID</dt>
+                  <dd data-field="markers">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>명함 ↔ 명함</dt>
+                  <dd data-field="marker-to-marker">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 자기 명함</dt>
+                  <dd data-field="self-to-own">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 상대 명함</dt>
+                  <dd data-field="self-to-other">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>마지막 Health</dt>
+                  <dd data-field="health-age">—</dd>
+                </div>
+              </dl>
+            </div>
+          </article>
+
+          <article class="role-card" data-role-card="B" aria-labelledby="role-b-title">
+            <header class="card-header">
+              <h2 id="role-b-title" class="role-title">Quest B</h2>
+              <div class="card-status">
+                <span class="status-badge is-offline" data-field="status">OFFLINE</span>
+                <button
+                  type="button"
+                  class="compact-button"
+                  data-action="request-frame"
+                  data-role="B"
+                  data-server-control
+                  disabled
+                >새로고침</button>
+                <button
+                  type="button"
+                  class="health-toggle"
+                  data-action="toggle-health"
+                  aria-controls="health-b-details"
+                  aria-expanded="false"
+                >상세 ▾</button>
+              </div>
+            </header>
+
+            <figure class="preview">
+              <div class="preview-stage">
+                <img data-preview-image alt="B 역할 Quest 프리뷰" hidden>
+                <p data-preview-placeholder>프레임 대기 중</p>
+              </div>
+              <figcaption>
+                <span>기기 <strong data-field="device-id">미할당</strong></span>
+                <span data-field="frame-age">마지막 프레임 —</span>
+              </figcaption>
+            </figure>
+
+            <div id="health-b-details" class="health-details" data-health-details="B" hidden>
+              <dl class="telemetry-grid">
+                <div>
+                  <dt>RTT</dt>
+                  <dd data-field="rtt">—</dd>
+                </div>
+                <div>
+                  <dt>FPS</dt>
+                  <dd data-field="fps">—</dd>
+                </div>
+                <div>
+                  <dt>CV Hz</dt>
+                  <dd data-field="cv-hz">—</dd>
+                </div>
+                <div>
+                  <dt>CV ms</dt>
+                  <dd data-field="cv-ms">—</dd>
+                </div>
+                <div>
+                  <dt>배터리</dt>
+                  <dd data-field="battery">—</dd>
+                </div>
+                <div>
+                  <dt>마커 ID</dt>
+                  <dd data-field="markers">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>명함 ↔ 명함</dt>
+                  <dd data-field="marker-to-marker">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 자기 명함</dt>
+                  <dd data-field="self-to-own">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>본인 ↔ 상대 명함</dt>
+                  <dd data-field="self-to-other">—</dd>
+                </div>
+                <div class="wide">
+                  <dt>마지막 Health</dt>
+                  <dd data-field="health-age">—</dd>
+                </div>
+              </dl>
+            </div>
+          </article>
+        </div>
+      </section>
     </main>
 
     <script type="module" src="./app.js"></script>

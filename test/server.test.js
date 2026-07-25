@@ -16,6 +16,23 @@ import {
 
 const sequenceFixture = {
   sequenceId: "performance-v1",
+  music: [
+    {
+      trackId: "amb_1_2",
+      label: "엠비언스 (amb_1.2)",
+      file: "amb_1.2.mp3"
+    },
+    {
+      trackId: "mus_2_1",
+      label: "흥미로운 음악 (mus_2.1)",
+      file: "mus_2.1.mp3"
+    },
+    {
+      trackId: "mus_reunion",
+      label: "추억속의 재회",
+      file: "mus_추억속의재회.mp3"
+    }
+  ],
   steps: [
     {
       stepId: "intro",
@@ -30,6 +47,32 @@ const sequenceFixture = {
       targets: ["A", "B"],
       trigger: { type: "manual" },
       params: { cue: "move" }
+    }
+  ]
+};
+
+const initialMusicState = {
+  tracks: [
+    {
+      trackId: "amb_1_2",
+      label: "엠비언스 (amb_1.2)",
+      file: "amb_1.2.mp3",
+      playing: false,
+      startedAtServerMs: null
+    },
+    {
+      trackId: "mus_2_1",
+      label: "흥미로운 음악 (mus_2.1)",
+      file: "mus_2.1.mp3",
+      playing: false,
+      startedAtServerMs: null
+    },
+    {
+      trackId: "mus_reunion",
+      label: "추억속의 재회",
+      file: "mus_추억속의재회.mp3",
+      playing: false,
+      startedAtServerMs: null
     }
   ]
 };
@@ -305,6 +348,10 @@ function deviceFrom(message, deviceId) {
   return message.devices.find((device) => device.deviceId === deviceId);
 }
 
+function musicTrackFrom(message, trackId) {
+  return message.tracks.find((track) => track.trackId === trackId);
+}
+
 async function expectRejectedUpgrade(url) {
   return new Promise((resolve, reject) => {
     const webSocket = new WebSocket(url);
@@ -553,10 +600,12 @@ test("serves exact REST state and validates assignment and sequence commands", a
   assert.deepEqual(Object.keys(initial.json), [
     "devices",
     "seqState",
-    "sequence"
+    "sequence",
+    "musicState"
   ]);
   assert.deepEqual(initial.json.devices, []);
   assert.deepEqual(initial.json.sequence, sequenceFixture);
+  assert.deepEqual(initial.json.musicState, initialMusicState);
   assert.deepEqual(
     {
       ...initial.json.seqState,
@@ -575,8 +624,13 @@ test("serves exact REST state and validates assignment and sequence commands", a
   const stateCopy = fixture.server.getState();
   stateCopy.sequence.steps[0].title = "mutated";
   stateCopy.seqState.params.cue = "mutated";
+  stateCopy.musicState.tracks[0].playing = true;
   assert.equal(fixture.server.getState().sequence.steps[0].title, "Intro");
   assert.equal(fixture.server.getState().seqState.params.cue, "standby");
+  assert.equal(
+    fixture.server.getState().musicState.tracks[0].playing,
+    false
+  );
 
   for (const body of [
     { deviceId: "", role: "A" },
@@ -625,6 +679,88 @@ test("serves exact REST state and validates assignment and sequence commands", a
   assert.equal(current.json.seqState.running, true);
 });
 
+test("POST /api/music returns and broadcasts state and rejects invalid commands", async (t) => {
+  const fixture = await createRunningServer(t, {}, {
+    now: () => 5_000
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const quest = await openPeer(t, fixture.wsUrl);
+  const unwelcomed = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-rest-music"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    quest.nextJson("welcome")
+  ]);
+
+  const response = await fetch(`${fixture.httpBaseUrl}/api/music`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ trackId: "mus_2_1", action: "play" })
+  });
+  assert.equal(response.status, 200);
+  const json = await response.json();
+  const expectedMusicState = {
+    tracks: [
+      {
+        trackId: "amb_1_2",
+        label: "엠비언스 (amb_1.2)",
+        file: "amb_1.2.mp3",
+        playing: false,
+        startedAtServerMs: null
+      },
+      {
+        trackId: "mus_2_1",
+        label: "흥미로운 음악 (mus_2.1)",
+        file: "mus_2.1.mp3",
+        playing: true,
+        startedAtServerMs: 5_000
+      },
+      {
+        trackId: "mus_reunion",
+        label: "추억속의 재회",
+        file: "mus_추억속의재회.mp3",
+        playing: false,
+        startedAtServerMs: null
+      }
+    ]
+  };
+  assert.deepEqual(json, { ok: true, musicState: expectedMusicState });
+  const [dashboardState, questState] = await Promise.all([
+    dashboard.nextJson("musicState"),
+    quest.nextJson("musicState")
+  ]);
+  assert.deepEqual(dashboardState, { t: "musicState", ...expectedMusicState });
+  assert.deepEqual(questState, { t: "musicState", ...expectedMusicState });
+  await assert.rejects(
+    unwelcomed.nextJson("musicState", () => true, 80),
+    /Timed out waiting for JSON message musicState/
+  );
+
+  for (const body of [
+    { trackId: "not-in-sequence", action: "play" },
+    { trackId: "amb_1_2", action: "resume" }
+  ]) {
+    const invalid = await requestJson(`${fixture.httpBaseUrl}/api/music`, {
+      method: "POST",
+      body
+    });
+    assert.equal(invalid.response.status, 400);
+    assert.equal(invalid.json.ok, false);
+    assert.equal(invalid.json.error?.code, "INVALID_MUSIC_COMMAND");
+    assert.equal(typeof invalid.json.error?.message, "string");
+  }
+  assert.deepEqual(fixture.server.getState().musicState, expectedMusicState);
+  await assert.rejects(
+    dashboard.nextJson("musicState", () => true, 80),
+    /Timed out waiting for JSON message musicState/
+  );
+});
+
 test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and offline state", async (t) => {
   const fixture = await createRunningServer(t, {
     assignments: { "quest-alpha": "A" }
@@ -637,10 +773,12 @@ test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and 
     "serverTimeMs",
     "devices",
     "seqState",
-    "sequence"
+    "sequence",
+    "musicState"
   ]);
   assert.deepEqual(dashboardWelcome.devices, []);
   assert.deepEqual(dashboardWelcome.sequence, sequenceFixture);
+  assert.deepEqual(dashboardWelcome.musicState, initialMusicState);
 
   const unwelcomed = await openPeer(t, fixture.wsUrl);
   unwelcomed.sendJson({ t: "health", fps: 999 });
@@ -657,11 +795,13 @@ test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and 
     "t",
     "role",
     "serverTimeMs",
-    "seqState"
+    "seqState",
+    "musicState"
   ]);
   assert.equal(questWelcome.role, "A");
   assert.equal(typeof questWelcome.serverTimeMs, "number");
   assert.equal(questWelcome.seqState.stepId, "intro");
+  assert.deepEqual(questWelcome.musicState, initialMusicState);
   assert.deepEqual(await quest.nextJson("previewSource"), {
     t: "previewSource",
     role: "A",
@@ -770,6 +910,214 @@ test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and 
     }
   );
   assert.equal(deviceFrom(closedUpdate, "quest-alpha").online, false);
+});
+
+test("dashboard music commands broadcast play, replay, and stop state to every welcomed client", async (t) => {
+  let nowMs = 1_000;
+  const fixture = await createRunningServer(t, {}, {
+    now: () => nowMs
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const quest = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-music"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    quest.nextJson("welcome")
+  ]);
+
+  const expectedPlayingState = {
+    t: "musicState",
+    tracks: [
+      {
+        trackId: "amb_1_2",
+        label: "엠비언스 (amb_1.2)",
+        file: "amb_1.2.mp3",
+        playing: true,
+        startedAtServerMs: 1_000
+      },
+      {
+        trackId: "mus_2_1",
+        label: "흥미로운 음악 (mus_2.1)",
+        file: "mus_2.1.mp3",
+        playing: false,
+        startedAtServerMs: null
+      },
+      {
+        trackId: "mus_reunion",
+        label: "추억속의 재회",
+        file: "mus_추억속의재회.mp3",
+        playing: false,
+        startedAtServerMs: null
+      }
+    ]
+  };
+
+  dashboard.sendJson({
+    t: "musicCommand",
+    trackId: "amb_1_2",
+    action: "play"
+  });
+  const [dashboardPlay, questPlay] = await Promise.all([
+    dashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+    ),
+    quest.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+    )
+  ]);
+  assert.deepEqual(dashboardPlay, expectedPlayingState);
+  assert.deepEqual(questPlay, expectedPlayingState);
+  assert.ok(
+    fixture.logs.some(
+      ({ message }) =>
+        message.startsWith("[VA]") &&
+        /\bmusic\b/i.test(message) &&
+        message.includes('trackId="amb_1_2"') &&
+        message.includes('action="play"')
+    ),
+    "a valid music command must be logged with sanitized values"
+  );
+
+  nowMs = 2_000;
+  dashboard.sendJson({
+    t: "musicCommand",
+    trackId: "amb_1_2",
+    action: "play"
+  });
+  const [dashboardReplay, questReplay] = await Promise.all([
+    dashboard.nextJson("musicState"),
+    quest.nextJson("musicState")
+  ]);
+  assert.deepEqual(dashboardReplay, expectedPlayingState);
+  assert.deepEqual(questReplay, expectedPlayingState);
+
+  nowMs = 3_000;
+  dashboard.sendJson({
+    t: "musicCommand",
+    trackId: "amb_1_2",
+    action: "stop"
+  });
+  const [dashboardStop, questStop] = await Promise.all([
+    dashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === false
+    ),
+    quest.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === false
+    )
+  ]);
+  assert.deepEqual(dashboardStop, { t: "musicState", ...initialMusicState });
+  assert.deepEqual(questStop, { t: "musicState", ...initialMusicState });
+
+  for (const command of [
+    { t: "musicCommand", trackId: "missing-track", action: "play" },
+    { t: "musicCommand", trackId: "amb_1_2", action: "pause" }
+  ]) {
+    dashboard.sendJson(command);
+    const error = await dashboard.nextJson("error");
+    assert.deepEqual(Object.keys(error), ["t", "code", "message"]);
+    assert.equal(error.code, "INVALID_MUSIC_COMMAND");
+    assert.equal(typeof error.message, "string");
+  }
+  assert.deepEqual(fixture.server.getState().musicState, initialMusicState);
+  await assert.rejects(
+    dashboard.nextJson("musicState", () => true, 80),
+    /Timed out waiting for JSON message musicState/
+  );
+});
+
+test("stop and start reset all runtime music state", async (t) => {
+  let nowMs = 7_000;
+  const fixture = await createRunningServer(t, {}, {
+    now: () => nowMs
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await dashboard.nextJson("welcome");
+
+  dashboard.sendJson({
+    t: "musicCommand",
+    trackId: "mus_reunion",
+    action: "play"
+  });
+  const playing = await dashboard.nextJson(
+    "musicState",
+    (message) => musicTrackFrom(message, "mus_reunion")?.playing === true
+  );
+  assert.equal(
+    musicTrackFrom(playing, "mus_reunion").startedAtServerMs,
+    7_000
+  );
+
+  await fixture.server.stop();
+  nowMs = 8_000;
+  await fixture.server.start();
+  assert.deepEqual(fixture.server.getState().musicState, initialMusicState);
+});
+
+test("assigned Quests relay valid voFinished events to dashboards only", async (t) => {
+  let nowMs = 9_000;
+  const fixture = await createRunningServer(
+    t,
+    { assignments: { "quest-vo": "B" } },
+    { now: () => nowMs }
+  );
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const assignedQuest = await openPeer(t, fixture.wsUrl);
+  const rolelessQuest = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  assignedQuest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-vo"
+  });
+  rolelessQuest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-no-role"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    assignedQuest.nextJson("welcome"),
+    rolelessQuest.nextJson("welcome")
+  ]);
+
+  nowMs = 9_100;
+  assignedQuest.sendJson({ t: "voFinished", stepId: "approach" });
+  assert.deepEqual(await dashboard.nextJson("voStatus"), {
+    t: "voStatus",
+    stepId: "approach",
+    role: "B",
+    finishedAtServerMs: 9_100
+  });
+  await assert.rejects(
+    assignedQuest.nextJson("voStatus", () => true, 80),
+    /Timed out waiting for JSON message voStatus/
+  );
+  await assert.rejects(
+    rolelessQuest.nextJson("voStatus", () => true, 80),
+    /Timed out waiting for JSON message voStatus/
+  );
+
+  assignedQuest.sendJson({ t: "voFinished", stepId: "   " });
+  await assert.rejects(
+    dashboard.nextJson("voStatus", () => true, 80),
+    /Timed out waiting for JSON message voStatus/
+  );
+
+  rolelessQuest.sendJson({ t: "voFinished", stepId: "intro" });
+  await assert.rejects(
+    dashboard.nextJson("voStatus", () => true, 80),
+    /Timed out waiting for JSON message voStatus/
+  );
 });
 
 test("normalizes negative Quest health sentinels before storing and forwarding", async (t) => {

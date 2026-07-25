@@ -4,13 +4,22 @@ import test from "node:test";
 
 import {
   RECONNECT_DELAY_MS,
+  calculateServerElapsedMs,
   formatAge,
   formatDistance,
+  getSequenceShortcutAction,
+  groupStepsByScene,
+  isDemoMode,
+  loadDemoSequence,
   makePongMessage,
+  makeMusicToggleMessage,
   makeUnassignedRenderKey,
   makeWebSocketUrl,
+  needsJumpConfirmation,
+  normalizeCueParams,
   parseFramePayload,
-  reconcileRoleOwners
+  reconcileRoleOwners,
+  scrollCueRowIntoView
 } from "../public/app.js";
 
 const htmlPath = new URL("../public/index.html", import.meta.url);
@@ -147,6 +156,247 @@ test("keeps the unassigned render key stable across telemetry-only pushes", () =
   );
 });
 
+test("calculates elapsed server time with the last known clock offset", () => {
+  assert.equal(calculateServerElapsedMs(9_500, 8_750, 2_000), 1_250);
+  assert.equal(calculateServerElapsedMs(12_000, 8_750, 2_000), 0);
+  assert.equal(calculateServerElapsedMs(null, 8_750, 2_000), null);
+  assert.equal(
+    calculateServerElapsedMs(9_500, Number.NaN, 2_000),
+    null
+  );
+});
+
+test("groups cue steps by sceneId while preserving order and cue ranges", () => {
+  const groups = groupStepsByScene([
+    {
+      stepId: "s1-001",
+      params: {
+        sceneId: "s1",
+        scene: "첫 장면",
+        cueNumber: 1,
+        speaker: "A",
+        lines: ["첫 큐"]
+      }
+    },
+    {
+      stepId: "s1-002",
+      params: {
+        sceneId: "s1",
+        scene: "첫 장면",
+        cueNumber: 2,
+        speaker: "A",
+        lines: ["둘째 큐"]
+      }
+    },
+    {
+      stepId: "s2-010",
+      params: {
+        sceneId: "s2",
+        scene: "둘째 장면",
+        cueNumber: 10,
+        speaker: "B",
+        textKr: "다음 장면"
+      }
+    },
+    { stepId: "legacy", params: { speaker: "A", lines: ["구형 큐"] } }
+  ]);
+
+  assert.deepEqual(
+    groups.map((group) => ({
+      sceneId: group.sceneId,
+      scene: group.scene,
+      startCueNumber: group.startCueNumber,
+      endCueNumber: group.endCueNumber,
+      stepIndexes: group.entries.map((entry) => entry.stepIndex)
+    })),
+    [
+      {
+        sceneId: "s1",
+        scene: "첫 장면",
+        startCueNumber: 1,
+        endCueNumber: 2,
+        stepIndexes: [0, 1]
+      },
+      {
+        sceneId: "s2",
+        scene: "둘째 장면",
+        startCueNumber: 10,
+        endCueNumber: 10,
+        stepIndexes: [2]
+      },
+      {
+        sceneId: "__ungrouped__",
+        scene: "씬 미지정",
+        startCueNumber: null,
+        endCueNumber: null,
+        stepIndexes: [3]
+      }
+    ]
+  );
+});
+
+test("requires one confirmation only for jumps of two or more indexes", () => {
+  assert.equal(needsJumpConfirmation(4, 4), false);
+  assert.equal(needsJumpConfirmation(4, 5), false);
+  assert.equal(needsJumpConfirmation(4, 6), true);
+  assert.equal(needsJumpConfirmation(6, 4), true);
+  assert.equal(needsJumpConfirmation(null, 4), false);
+});
+
+test("builds music play and stop commands from the current track state", () => {
+  assert.deepEqual(
+    makeMusicToggleMessage({ trackId: "amb", playing: false }),
+    { t: "musicCommand", trackId: "amb", action: "play" }
+  );
+  assert.deepEqual(
+    makeMusicToggleMessage({ trackId: "amb", playing: true }),
+    { t: "musicCommand", trackId: "amb", action: "stop" }
+  );
+  assert.equal(makeMusicToggleMessage(null), null);
+  assert.equal(makeMusicToggleMessage({ trackId: "" }), null);
+});
+
+test("normalizes missing and legacy cue params without throwing", () => {
+  assert.deepEqual(normalizeCueParams(null), {
+    cueNumber: null,
+    scene: "",
+    sceneId: "",
+    speaker: "",
+    textKr: "",
+    textEn: "",
+    lines: [],
+    xr: "",
+    ui: "",
+    vo: "",
+    voDurationMs: null,
+    sfx: "",
+    musicCue: null,
+    note: ""
+  });
+
+  assert.deepEqual(
+    normalizeCueParams({
+      speaker: "우경",
+      lines: ["첫 줄", "둘째 줄"],
+      voDurationMs: Number.NaN,
+      musicCue: { trackId: "amb", action: "in", note: "지금" }
+    }),
+    {
+      cueNumber: null,
+      scene: "",
+      sceneId: "",
+      speaker: "우경",
+      textKr: "첫 줄\n둘째 줄",
+      textEn: "",
+      lines: ["첫 줄", "둘째 줄"],
+      xr: "",
+      ui: "",
+      vo: "",
+      voDurationMs: null,
+      sfx: "",
+      musicCue: { trackId: "amb", action: "in", note: "지금" },
+      note: ""
+    }
+  );
+
+  assert.doesNotThrow(() =>
+    normalizeCueParams({ lines: { malformed: true }, musicCue: "bad" })
+  );
+});
+
+test("resolves operator shortcuts without browser globals", () => {
+  assert.equal(getSequenceShortcutAction(" ", "DIV"), "next");
+  assert.equal(getSequenceShortcutAction("ArrowRight", "BODY"), "next");
+  assert.equal(getSequenceShortcutAction("ArrowLeft", "BUTTON"), "prev");
+  assert.equal(getSequenceShortcutAction(" ", "BUTTON"), null);
+  assert.equal(getSequenceShortcutAction(" ", "SUMMARY"), null);
+  assert.equal(getSequenceShortcutAction(" ", "A"), null);
+  assert.equal(getSequenceShortcutAction(" ", "DIV", false, true), null);
+  assert.equal(getSequenceShortcutAction("ArrowRight", "INPUT"), null);
+  assert.equal(getSequenceShortcutAction(" ", "textarea"), null);
+  assert.equal(getSequenceShortcutAction("Escape", "BODY"), null);
+});
+
+test("recognizes demo mode only from demo=1", () => {
+  assert.equal(isDemoMode("?demo=1"), true);
+  assert.equal(isDemoMode("?foo=x&demo=1"), true);
+  assert.equal(isDemoMode("?demo=0"), false);
+  assert.equal(isDemoMode(""), false);
+});
+
+test("loads the canonical demo sequence from static or local read-only state", async () => {
+  const canonical = {
+    sequenceId: "canonical",
+    music: [],
+    steps: [{ stepId: "one", params: {} }]
+  };
+  const staticRequests = [];
+  const fromStatic = await loadDemoSequence(async (url) => {
+    staticRequests.push(url);
+    return { ok: true, json: async () => canonical };
+  });
+  assert.equal(fromStatic.sequenceId, "canonical");
+  assert.deepEqual(staticRequests, ["./data/sequence.json"]);
+
+  const localRequests = [];
+  const fromLocalState = await loadDemoSequence(async (url) => {
+    localRequests.push(url);
+    return url === "./data/sequence.json"
+      ? { ok: false, status: 404 }
+      : { ok: true, json: async () => ({ sequence: canonical }) };
+  });
+  assert.equal(fromLocalState.sequenceId, "canonical");
+  assert.deepEqual(localRequests, [
+    "./data/sequence.json",
+    "./api/state"
+  ]);
+
+  const fallback = {
+    sequenceId: "fallback",
+    music: [],
+    steps: [{ stepId: "fallback-one", params: {} }]
+  };
+  const fallbackResult = await loadDemoSequence(
+    async () => {
+      throw new Error("offline");
+    },
+    fallback
+  );
+  assert.equal(fallbackResult, fallback);
+});
+
+test("scrolls the current cue inside its list without moving outer views", () => {
+  const outerScroller = { scrollLeft: 4, scrollTop: 30 };
+  const viewport = {
+    scrollX: 7,
+    scrollY: 11,
+    scrollTo(left, top) {
+      this.scrollX = left;
+      this.scrollY = top;
+    }
+  };
+  let receivedOptions = null;
+  const currentRow = {
+    scrollIntoView(options) {
+      receivedOptions = options;
+      outerScroller.scrollLeft = 400;
+      outerScroller.scrollTop = 900;
+      viewport.scrollX = 70;
+      viewport.scrollY = 110;
+    }
+  };
+
+  assert.equal(
+    scrollCueRowIntoView(currentRow, [outerScroller], viewport),
+    true
+  );
+  assert.deepEqual(receivedOptions, { block: "nearest" });
+  assert.deepEqual(outerScroller, { scrollLeft: 4, scrollTop: 30 });
+  assert.equal(viewport.scrollX, 7);
+  assert.equal(viewport.scrollY, 11);
+  assert.equal(scrollCueRowIntoView(null, [outerScroller], viewport), false);
+});
+
 test("provides semantic A/B, unassigned, sequence, and preview-control hooks", async () => {
   const html = await readFile(htmlPath, "utf8");
 
@@ -157,6 +407,10 @@ test("provides semantic A/B, unassigned, sequence, and preview-control hooks", a
     'id="unassigned-devices"',
     'id="sequence-panel"',
     'id="sequence-steps"',
+    'id="music-channels"',
+    'id="cue-sheet"',
+    'data-cue-panel="now"',
+    'data-cue-panel="deck"',
     'data-seq-action="start"',
     'data-seq-action="stop"',
     'data-seq-action="prev"',
@@ -179,8 +433,18 @@ test("provides the compact cue-console structure and labels", async () => {
   assert.match(html, /id="unassigned-banner"[^>]*\bhidden\b/);
   assert.match(html, />⏵ Start</);
   assert.match(html, />⏹ Stop</);
-  assert.match(html, />◀ Prev</);
-  assert.match(html, />▶ Next</);
+  assert.match(html, />◀ PREV</);
+  assert.match(html, />▶▶ NEXT CUE</);
+  for (const label of [
+    "🥽 XR",
+    "🖥 UI",
+    "🔊 V.O",
+    "🔈 SFX",
+    "🎵 음악",
+    "📝 비고"
+  ]) {
+    assert.match(html, new RegExp(label), `missing cue label: ${label}`);
+  }
 });
 
 test("keeps each role device identity outside collapsed health details", async () => {
@@ -194,6 +458,11 @@ test("keeps each role device identity outside collapsed health details", async (
     )?.[0];
 
     assert.ok(card, `missing role ${role} card`);
+    assert.match(
+      card,
+      new RegExp(`<h2 id="role-${role.toLowerCase()}-title"`),
+      `role ${role} must preserve its original h2 title markup`
+    );
     assert.equal(
       (card.match(/data-field="device-id"/g) ?? []).length,
       1,
@@ -220,11 +489,19 @@ test("constrains the desktop console and restores mobile scrolling", async () =>
   );
   assert.match(
     css,
+    /\.cue-grid\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);/s
+  );
+  assert.match(
+    css,
+    /\.next-cue\s*\{[^}]*min-height:\s*64px;/s
+  );
+  assert.match(
+    css,
     /\.preview-stage img\s*\{[^}]*width:\s*100%;[^}]*height:\s*100%;[^}]*object-fit:\s*contain;/s
   );
   assert.match(
     css,
-    /\.sequence-steps\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*nowrap;/s
+    /\.sequence-steps\s*\{[^}]*display:\s*grid;[^}]*max-height:[^;]+;[^}]*overflow-y:\s*auto;/s
   );
   assert.match(
     css,
@@ -237,6 +514,28 @@ test("constrains the desktop console and restores mobile scrolling", async () =>
   assert.match(
     css,
     /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?\.operator-bar\s*\{[^}]*position:\s*sticky;[^}]*top:\s*0;[^}]*z-index:\s*20;/s
+  );
+  assert.match(
+    css,
+    /@media\s*\(max-width:\s*760px\)[^{]*\{[\s\S]*?\.cue-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s
+  );
+});
+
+test("lays out V.O status before auto-scrolling the current cue row", async () => {
+  const source = await readFile(appPath, "utf8");
+  const renderer = source.match(
+    /function renderSequence\(\)\s*\{[\s\S]*?\n  \}\n\n  function applyDevices/
+  )?.[0];
+
+  assert.ok(renderer, "missing sequence renderer");
+  assert.ok(
+    renderer.indexOf("renderVoProgress();") <
+      renderer.indexOf("renderCueSheet();"),
+    "V.O visibility must settle before cue-sheet scrolling"
+  );
+  assert.match(
+    source,
+    /scrollCueRowIntoView\(\s*currentRow,\s*\[document\.querySelector\("\.console-main"\)\],\s*window\s*\);/
   );
 });
 
