@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="color-scheme" content="dark">
+    <meta name="color-scheme" content="light">
     <title>Value Archive · 큐 오퍼레이터 콘솔</title>
     <link rel="stylesheet" href="./style.css">
   </head>
@@ -12,8 +12,8 @@
       <header id="sequence-panel" class="operator-bar">
         <div class="transport-topline">
           <p class="brand">
-            <span class="eyebrow">VALUE ARCHIVE</span>
-            CUE OPERATOR
+            <span class="eyebrow">VALUE ARCHIVE *** CUE OPERATOR</span>
+            0. Transport
           </p>
 
           <div id="transport-status" class="transport-status" aria-live="polite">
@@ -38,9 +38,9 @@
 
         <div class="transport" role="group" aria-label="시퀀스 제어">
           <div class="transport-secondary">
-            <button type="button" data-seq-action="start" data-server-control disabled>⏵ Start</button>
-            <button type="button" data-seq-action="stop" data-server-control disabled>⏹ Stop</button>
-            <button type="button" data-seq-action="prev" data-server-control disabled>◀ PREV</button>
+            <button type="button" data-seq-action="start" data-server-control disabled>START</button>
+            <button type="button" data-seq-action="stop" data-server-control disabled>STOP</button>
+            <button type="button" data-seq-action="prev" data-server-control disabled>PREV</button>
           </div>
           <button
             type="button"
@@ -48,7 +48,7 @@
             data-seq-action="next"
             data-server-control
             disabled
-          >▶▶ NEXT CUE</button>
+          >✱ NEXT CUE</button>
         </div>
 
         <section class="music-strip" aria-labelledby="music-strip-title">
@@ -66,7 +66,7 @@
           <header class="cue-panel__header">
             <div>
               <p class="panel-kicker">CURRENT</p>
-              <h1>NOW</h1>
+              <h1>1. Now</h1>
             </div>
             <p class="cue-identity">
               CN <strong data-cue-field="cn">—</strong>
@@ -87,27 +87,27 @@
 
             <dl class="cue-details">
               <div>
-                <dt>🥽 XR</dt>
+                <dt>❖ XR</dt>
                 <dd data-cue-field="xr">—</dd>
               </div>
               <div>
-                <dt>🖥 UI</dt>
+                <dt>❖ UI</dt>
                 <dd data-cue-field="ui">—</dd>
               </div>
               <div>
-                <dt>🔊 V.O</dt>
+                <dt>❖ V.O</dt>
                 <dd data-cue-field="vo">—</dd>
               </div>
               <div>
-                <dt>🔈 SFX</dt>
+                <dt>❖ SFX</dt>
                 <dd data-cue-field="sfx">—</dd>
               </div>
               <div>
-                <dt>🎵 음악</dt>
+                <dt>❖ MUS</dt>
                 <dd data-cue-field="music">—</dd>
               </div>
               <div>
-                <dt>📝 비고</dt>
+                <dt>❖ NOTE</dt>
                 <dd data-cue-field="note">—</dd>
               </div>
             </dl>
@@ -133,7 +133,7 @@
           <header class="cue-panel__header">
             <div>
               <p class="panel-kicker">UP NEXT</p>
-              <h2>ON DECK</h2>
+              <h2>2. Up Next</h2>
             </div>
             <p class="cue-identity">
               CN <strong data-cue-field="cn">—</strong>
@@ -154,27 +154,27 @@
 
             <dl class="cue-details">
               <div>
-                <dt>🥽 XR</dt>
+                <dt>❖ XR</dt>
                 <dd data-cue-field="xr">—</dd>
               </div>
               <div>
-                <dt>🖥 UI</dt>
+                <dt>❖ UI</dt>
                 <dd data-cue-field="ui">—</dd>
               </div>
               <div>
-                <dt>🔊 V.O</dt>
+                <dt>❖ V.O</dt>
                 <dd data-cue-field="vo">—</dd>
               </div>
               <div>
-                <dt>🔈 SFX</dt>
+                <dt>❖ SFX</dt>
                 <dd data-cue-field="sfx">—</dd>
               </div>
               <div>
-                <dt>🎵 음악</dt>
+                <dt>❖ MUS</dt>
                 <dd data-cue-field="music">—</dd>
               </div>
               <div>
-                <dt>📝 비고</dt>
+                <dt>❖ NOTE</dt>
                 <dd data-cue-field="note">—</dd>
               </div>
             </dl>
@@ -195,7 +195,7 @@
         <header class="section-heading">
           <div>
             <p class="panel-kicker">SHOW FLOW</p>
-            <h2 id="cue-sheet-title">큐시트</h2>
+            <h2 id="cue-sheet-title">3. Cue Sheet</h2>
           </div>
           <p>씬을 펼치거나 큐 행을 눌러 이동합니다.</p>
         </header>
@@ -208,7 +208,7 @@
         <header class="section-heading">
           <div>
             <p class="panel-kicker">QUEST MONITOR</p>
-            <h2 id="devices-title">기기 / 프리뷰</h2>
+            <h2 id="devices-title">4. Quest Monitor</h2>
           </div>
           <p>역할별 연결 상태와 텔레메트리</p>
         </header>

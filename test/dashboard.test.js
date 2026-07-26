@@ -524,19 +524,54 @@ test("provides the compact cue-console structure and labels", async () => {
     /data-action="toggle-health"[^>]*aria-expanded="false"/
   );
   assert.match(html, /id="unassigned-banner"[^>]*\bhidden\b/);
-  assert.match(html, />⏵ Start</);
-  assert.match(html, />⏹ Stop</);
-  assert.match(html, />◀ PREV</);
-  assert.match(html, />▶▶ NEXT CUE</);
+  assert.match(
+    html,
+    /<span class="eyebrow">VALUE ARCHIVE \*\*\* CUE OPERATOR<\/span>\s*0\. Transport/
+  );
+  assert.match(html, /<h1>1\. Now<\/h1>/);
+  assert.match(html, /<h2>2\. Up Next<\/h2>/);
+  assert.match(html, /<h2 id="cue-sheet-title">3\. Cue Sheet<\/h2>/);
+  assert.match(html, /<h2 id="devices-title">4\. Quest Monitor<\/h2>/);
+  assert.match(html, />START</);
+  assert.match(html, />STOP</);
+  assert.match(html, />PREV</);
+  assert.match(html, />✱ NEXT CUE</);
   for (const label of [
-    "🥽 XR",
-    "🖥 UI",
-    "🔊 V.O",
-    "🔈 SFX",
-    "🎵 음악",
-    "📝 비고"
+    "❖ XR",
+    "❖ UI",
+    "❖ V.O",
+    "❖ SFX",
+    "❖ MUS",
+    "❖ NOTE"
   ]) {
-    assert.match(html, new RegExp(label), `missing cue label: ${label}`);
+    assert.equal(
+      (html.match(new RegExp(label, "g")) ?? []).length,
+      2,
+      `${label} must label both cue detail lists`
+    );
+  }
+});
+
+test("keeps static dashboard copy free of playback pictograms and emoji", async () => {
+  const html = await readFile(htmlPath, "utf8");
+
+  for (const symbol of [
+    "⏵",
+    "⏹",
+    "◀",
+    "▶",
+    "🥽",
+    "🖥",
+    "🔊",
+    "🔈",
+    "🎵",
+    "📝"
+  ]) {
+    assert.doesNotMatch(
+      html,
+      new RegExp(symbol, "u"),
+      `static HTML must not contain ${symbol}`
+    );
   }
 });
 
@@ -595,6 +630,244 @@ test("keeps each role device identity outside collapsed health details", async (
       `role ${role} device-id must precede its collapsed health details`
     );
   }
+});
+
+test("uses the exact light letterpress palette and local monospace stack", async () => {
+  const [html, css] = await Promise.all([
+    readFile(htmlPath, "utf8"),
+    readFile(stylePath, "utf8")
+  ]);
+  const root = css.match(/:root\s*\{([^}]*)\}/s)?.[1];
+  const body = css.match(/body\s*\{([^}]*)\}/s)?.[1];
+
+  assert.ok(root, "missing :root palette");
+  assert.deepEqual(
+    [...root.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)].map(
+      ([, name, value]) => `${name}: ${value.trim()};`
+    ),
+    [
+      "--paper: #F0EDE5;",
+      "--paper-dim: #E7E3D8;",
+      "--ink: #16130F;",
+      "--ink-soft: #4A453C;",
+      "--frame: #571C18;",
+      "--stamp: #C0392B;",
+      "--stamp-soft: #E8B4AC;"
+    ]
+  );
+  assert.match(root, /color-scheme:\s*light;/);
+  assert.match(html, /<meta name="color-scheme" content="light">/);
+  assert.ok(body, "missing body rule");
+  assert.match(
+    body,
+    /font-family:\s*"Courier New",\s*"Nanum Gothic Coding",\s*"MS Gothic",\s*"Apple SD Gothic Neo",\s*monospace;/
+  );
+  assert.match(body, /background:\s*var\(--frame\);/);
+  assert.doesNotMatch(css, /@import\b|url\s*\(/i);
+});
+
+test("styles paper cards and high-priority states as ink and stamp impressions", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const paperCards = css.match(
+    /\.cue-panel,\s*\.cue-sheet,\s*\.devices-panel,\s*\.unassigned-banner,\s*\.role-card\s*\{([^}]*)\}/s
+  )?.[1];
+  const operator = css.match(/\.operator-bar\s*\{([^}]*)\}/s)?.[1];
+  const nextCue = css.match(/\.next-cue\s*\{([^}]*)\}/s)?.[1];
+  const playing = css.match(
+    /\.music-button\.is-playing\s*\{([^}]*)\}/s
+  )?.[1];
+  const currentCue = css.match(
+    /\.cue-row\.is-current,\s*\.cue-row\[aria-current="step"\]\s*\{([^}]*)\}/s
+  )?.[1];
+
+  assert.ok(paperCards, "missing shared paper-card rule");
+  assert.match(paperCards, /border:\s*1\.5px solid var\(--ink\);/);
+  assert.match(paperCards, /border-radius:\s*[012](?:px)?;/);
+  assert.match(paperCards, /background:\s*var\(--paper\);/);
+  assert.match(paperCards, /box-shadow:\s*2px 2px 0 var\(--ink\);/);
+  assert.doesNotMatch(css, /(?:backdrop-)?filter\s*:|text-shadow\s*:/i);
+
+  assert.ok(operator, "missing operator bar rule");
+  assert.match(operator, /background:\s*var\(--ink\);/);
+  assert.match(operator, /color:\s*var\(--paper\);/);
+
+  assert.ok(nextCue, "missing next-cue rule");
+  assert.match(nextCue, /border-color:\s*var\(--stamp\);/);
+  assert.match(nextCue, /background:\s*var\(--stamp\);/);
+  assert.match(nextCue, /color:\s*var\(--paper\);/);
+
+  assert.ok(playing, "missing playing music rule");
+  assert.match(playing, /border-color:\s*var\(--stamp\);/);
+  assert.match(playing, /background:\s*var\(--stamp\);/);
+  assert.match(playing, /color:\s*var\(--paper\);/);
+  assert.match(
+    css,
+    /\.music-button__cue\s*\{[^}]*color:\s*var\(--stamp\);/s
+  );
+
+  assert.ok(currentCue, "missing current cue-sheet row rule");
+  assert.match(currentCue, /border-color:\s*var\(--stamp\);/);
+  assert.match(currentCue, /background:\s*var\(--stamp-soft\);/);
+  assert.match(currentCue, /color:\s*var\(--ink\);/);
+  assert.match(currentCue, /padding-left:\s*1\.45rem;/);
+  assert.match(
+    css,
+    /\.cue-row\.is-current::before,\s*\.cue-row\[aria-current="step"\]::before\s*\{[^}]*content:\s*"✱";[^}]*color:\s*var\(--stamp\);/s
+  );
+});
+
+test("replaces runtime emoji visually while retaining music track text", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const musicChannels = css.match(
+    /\.music-channels\s*\{([^}]*)\}/s
+  )?.[1];
+  const musicButton = css.match(/\.music-button\s*\{([^}]*)\}/s)?.[1];
+  const musicLabel = css.match(
+    /\.music-button__label\s*\{([^}]*)\}/s
+  )?.[1];
+  const musicLabelPrefix = css.match(
+    /\.music-button__label::before\s*\{([^}]*)\}/s
+  )?.[1];
+  const musicStatus = css.match(
+    /\.music-button__status\s*\{([^}]*)\}/s
+  )?.[1];
+  const cueIcons = css.match(/\.cue-row__icons\s*\{([^}]*)\}/s)?.[1];
+  const cueIconsMark = css.match(
+    /\.cue-row__icons::before\s*\{([^}]*)\}/s
+  )?.[1];
+
+  assert.ok(musicChannels, "missing music channel grid");
+  assert.match(
+    musicChannels,
+    /grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\);/
+  );
+  assert.ok(musicButton, "missing music button layout");
+  assert.match(
+    musicButton,
+    /grid-template-columns:\s*minmax\(0,\s*1fr\);/
+  );
+  assert.ok(musicLabel, "missing runtime music-label mask");
+  assert.match(musicLabel, /position:\s*relative;/);
+  assert.match(musicLabel, /overflow:\s*hidden;/);
+  assert.match(musicLabel, /padding-left:\s*2\.25rem;/);
+  assert.match(musicLabel, /text-indent:\s*-1\.4rem;/);
+  assert.doesNotMatch(musicLabel, /font-size:\s*0;/);
+  assert.ok(musicLabelPrefix, "missing MUS replacement prefix");
+  assert.match(musicLabelPrefix, /content:\s*"MUS";/);
+  assert.match(musicLabelPrefix, /position:\s*absolute;/);
+  assert.match(musicLabelPrefix, /width:\s*1\.9rem;/);
+  assert.ok(musicStatus, "missing music status layout");
+  assert.match(musicStatus, /grid-row:\s*2;/);
+
+  assert.ok(cueIcons, "missing runtime cue icon mask");
+  assert.match(cueIcons, /font-size:\s*0;/);
+  assert.ok(cueIconsMark, "missing cue icon replacement mark");
+  assert.match(cueIconsMark, /content:\s*"❖";/);
+  assert.match(cueIconsMark, /font-size:\s*[^0][^;]*;/);
+});
+
+test("keeps playing music colors intact while hovered", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const playingHover = css.match(
+    /\.music-button\.is-playing:hover:not\(:disabled\)\s*\{([^}]*)\}/s
+  )?.[1];
+  const playingHoverPrefix = css.match(
+    /\.music-button\.is-playing:hover:not\(:disabled\) \.music-button__label::before\s*\{([^}]*)\}/s
+  )?.[1];
+  const playingHoverStatus = css.match(
+    /\.music-button\.is-playing:hover:not\(:disabled\) \.music-button__status\s*\{([^}]*)\}/s
+  )?.[1];
+
+  assert.ok(playingHover, "missing playing-hover state");
+  assert.match(playingHover, /background:\s*var\(--stamp\);/);
+  assert.match(playingHover, /color:\s*var\(--paper\);/);
+  assert.ok(playingHoverPrefix, "missing playing-hover MUS prefix state");
+  assert.match(playingHoverPrefix, /background:\s*var\(--stamp\);/);
+  assert.match(playingHoverPrefix, /color:\s*var\(--paper\);/);
+  assert.ok(playingHoverStatus, "missing playing-hover status state");
+  assert.match(playingHoverStatus, /color:\s*var\(--paper\);/);
+});
+
+test("keeps the current cue stamp treatment intact while hovered", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const currentHover = css.match(
+    /\.cue-row\.is-current:hover:not\(:disabled\),\s*\.cue-row\[aria-current="step"\]:hover:not\(:disabled\)\s*\{([^}]*)\}/s
+  )?.[1];
+
+  assert.ok(currentHover, "missing current-cue hover override");
+  assert.match(currentHover, /border-color:\s*var\(--stamp\);/);
+  assert.match(currentHover, /background:\s*var\(--stamp-soft\);/);
+  assert.match(currentHover, /color:\s*var\(--ink\);/);
+});
+
+test("keeps keyboard focus distinct from the cued music pulse", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const cuedFocus = css.match(
+    /\.music-button\.is-cued:focus-visible\s*\{([^}]*)\}/s
+  )?.[1];
+
+  assert.ok(cuedFocus, "missing cued-music focus override");
+  assert.match(cuedFocus, /animation:\s*none;/);
+  assert.match(cuedFocus, /outline:\s*3px solid var\(--paper\);/);
+  assert.match(cuedFocus, /outline-offset:\s*3px;/);
+});
+
+test("keeps small print readable and NOW visually ahead of UP NEXT", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const nowPanel = css.match(/\.cue-panel--now\s*\{([^}]*)\}/s)?.[1];
+  const nowHeading = css.match(
+    /\.cue-panel--now \.cue-panel__header h1\s*\{([^}]*)\}/s
+  )?.[1];
+  const deckPanel = css.match(/\.cue-panel--deck\s*\{([^}]*)\}/s)?.[1];
+  const copyLabel = css.match(/\.cue-copy__label\s*\{([^}]*)\}/s)?.[1];
+  const currentNumber = css.match(
+    /\.cue-row\.is-current \.cue-row__cn,\s*\.cue-row\[aria-current="step"\] \.cue-row__cn\s*\{([^}]*)\}/s
+  )?.[1];
+  const hoverNumber = css.match(
+    /\.cue-row:hover:not\(:disabled\) \.cue-row__cn\s*\{([^}]*)\}/s
+  )?.[1];
+
+  assert.ok(nowPanel, "missing NOW panel rule");
+  assert.match(nowPanel, /border-top:\s*6px solid var\(--stamp\);/);
+  assert.ok(nowHeading, "missing NOW heading emphasis");
+  assert.match(nowHeading, /color:\s*var\(--stamp\);/);
+  assert.ok(deckPanel, "missing UP NEXT panel rule");
+  assert.match(deckPanel, /border-top:\s*6px solid var\(--ink\);/);
+  assert.match(deckPanel, /background:\s*var\(--paper\);/);
+  assert.ok(copyLabel, "missing cue copy label rule");
+  assert.match(copyLabel, /color:\s*var\(--frame\);/);
+  assert.ok(currentNumber, "missing current cue number contrast override");
+  assert.match(currentNumber, /color:\s*var\(--frame\);/);
+  assert.ok(hoverNumber, "missing hovered cue number contrast override");
+  assert.match(hoverNumber, /color:\s*var\(--frame\);/);
+});
+
+test("uses readable lesson headers and keeps section numbers on one line", async () => {
+  const css = await readFile(stylePath, "utf8");
+  const sceneName = css.match(
+    /\.scene-group__name\s*\{([^}]*)\}/s
+  )?.[1];
+  const sceneRange = css.match(
+    /\.scene-group__range\s*\{([^}]*)\}/s
+  )?.[1];
+  const headingLead = css.match(
+    /\.section-heading > div\s*\{([^}]*)\}/s
+  )?.[1];
+  const heading = css.match(/\.section-heading h2\s*\{([^}]*)\}/s)?.[1];
+
+  assert.ok(sceneName, "missing scene lesson title rule");
+  assert.match(sceneName, /color:\s*var\(--ink\);/);
+  assert.match(sceneName, /font-weight:\s*8\d\d;/);
+  assert.doesNotMatch(sceneName, /text-transform:\s*lowercase;/);
+  assert.ok(sceneRange, "missing scene supporting range rule");
+  assert.match(sceneRange, /margin-left:\s*auto;/);
+  assert.match(sceneRange, /color:\s*var\(--ink-soft\);/);
+  assert.match(sceneRange, /font-size:\s*0\.68rem;/);
+  assert.doesNotMatch(sceneRange, /order:\s*-1;/);
+  assert.ok(headingLead, "missing non-shrinking section heading lead");
+  assert.match(headingLead, /flex:\s*0 0 auto;/);
+  assert.ok(heading, "missing section heading rule");
+  assert.match(heading, /white-space:\s*nowrap;/);
 });
 
 test("lays out the desktop console with a sticky cue-sheet scroller", async () => {
@@ -698,8 +971,12 @@ test("restores source-order scrolling below 1100px and one-column mobile cards",
   const stackStart = css.indexOf("@media (max-width: 1099.98px)");
   const mobileStart = css.indexOf("@media (max-width: 760px)");
   const narrowStart = css.indexOf("@media (max-width: 460px)");
+  const reducedMotionStart = css.indexOf(
+    "@media (prefers-reduced-motion: reduce)"
+  );
   const stack = css.slice(stackStart, mobileStart);
   const mobile = css.slice(mobileStart, narrowStart);
+  const narrow = css.slice(narrowStart, reducedMotionStart);
 
   assert.notEqual(
     stackStart,
@@ -728,12 +1005,28 @@ test("restores source-order scrolling below 1100px and one-column mobile cards",
     /\.sequence-steps\s*\{[^}]*max-height:\s*min\(52vh,\s*36rem\);[^}]*overflow-y:\s*auto;/s
   );
   assert.match(
+    stack,
+    /\.connection-pill\s*\{[^}]*grid-column:\s*2;[^}]*grid-row:\s*1;/s
+  );
+  assert.match(
+    stack,
+    /\.transport-status\s*\{[^}]*grid-column:\s*1\s*\/\s*-1;[^}]*grid-row:\s*2;/s
+  );
+  assert.match(
     mobile,
     /\.cue-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s
   );
   assert.match(
     mobile,
     /\.role-grid\s*\{[^}]*grid-template-columns:\s*1fr;/s
+  );
+  assert.match(
+    narrow,
+    /\.transport-topline\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto;/s
+  );
+  assert.match(
+    narrow,
+    /\.brand\s*\{[^}]*min-width:\s*0;[^}]*white-space:\s*normal;/s
   );
 });
 
