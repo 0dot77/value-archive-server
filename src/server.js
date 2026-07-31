@@ -126,7 +126,7 @@ export function resolveHttpPort(options = {}) {
     throw new TypeError("options must be an object");
   }
   return requirePort(
-    options.httpPort ?? options.port ?? readVaPort() ?? 8765,
+    options.httpPort ?? options.port ?? readVaPort() ?? 8080,
     "httpPort"
   );
 }

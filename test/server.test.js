@@ -530,14 +530,14 @@ test("selectAdvertiseIp prioritizes override, requester subnet, and fallbacks", 
   );
 });
 
-test("resolves TCP port 8765 when no HTTP port option or VA_PORT is set", async () => {
+test("resolves TCP port 8080 when no HTTP port option or VA_PORT is set", async () => {
   await withVaPort(undefined, async () => {
     assert.equal(
       resolveHttpPort({
         httpPort: undefined,
         port: undefined
       }),
-      8765
+      8080
     );
   });
 });
@@ -579,8 +579,8 @@ test("rejects invalid VA_PORT decimal strings and ranges", async () => {
     "65536",
     "-1",
     "1.5",
-    "8765junk",
-    " 8765",
+    "8080junk",
+    " 8080",
     "0x223d"
   ]) {
     await withVaPort(value, async () => {
