@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { WebSocket } from "ws";
 
 const APP_VERSION = "value-archive-mock/1.0.0";
-const DIRECT_PORT = 8080;
+const DIRECT_PORT = 17800;
 const DISCOVERY_ADDRESS = "255.255.255.255";
 const DISCOVERY_PORT = 47800;
 const DISCOVERY_REQUEST = "VA_DISCOVER?";
