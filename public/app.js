@@ -1,4 +1,7 @@
 const ROLES = ["A", "B"];
+const SUBTITLE_LANGS = new Set(["kr", "en", "zh"]);
+const SELECTABLE_SUBTITLE_LANGS = new Set(["en", "zh"]);
+const RESET_CONFIRM_MESSAGE = "공연을 시작 전 상태로 리셋할까요? 큐가 처음으로 돌아가고 음악이 모두 정지됩니다.";
 const EDITABLE_TAG_NAMES = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 const SPACE_INTERACTIVE_TAG_NAMES = new Set(["A", "BUTTON", "SUMMARY"]);
 
@@ -342,11 +345,13 @@ export function makeMusicToggleMessage(track) {
   };
 }
 
-export function makeSubtitleToggleMessage(enabled) {
+export function makeSubtitleLangMessage(currentLang, pressedLang) {
+  if (!SELECTABLE_SUBTITLE_LANGS.has(pressedLang)) {
+    return null;
+  }
   return {
     t: "subtitleCommand",
-    lang: "zh",
-    enabled: enabled !== true
+    lang: currentLang === pressedLang ? "kr" : pressedLang
   };
 }
 
@@ -503,7 +508,7 @@ function startDashboard() {
     sequence: null,
     seqState: null,
     musicState: { tracks: [] },
-    subtitleState: { langs: { zh: true } },
+    subtitleState: { lang: "kr" },
     serverClockOffsetMs: 0,
     voFinishedRoles: new Set(),
     previews: {
@@ -629,8 +634,10 @@ function startDashboard() {
         : "—";
   }
 
-  function subtitleEnabled() {
-    return state.subtitleState?.langs?.zh !== false;
+  function subtitleLanguage() {
+    return SUBTITLE_LANGS.has(state.subtitleState?.lang)
+      ? state.subtitleState.lang
+      : "kr";
   }
 
   function canSequenceControl() {
@@ -1020,9 +1027,12 @@ function startDashboard() {
     setCueField(panel, "text-kr", params.textKr);
     setCueField(panel, "text-en", params.textEn);
     setCueField(panel, "text-zh", params.textZh);
-    panel
-      .querySelector('[data-cue-field="text-zh"]')
-      .classList.toggle("is-disabled", !subtitleEnabled());
+    const activeSubtitleLanguage = subtitleLanguage();
+    for (const line of panel.querySelectorAll("[data-cue-lang]")) {
+      const active = line.dataset.cueLang === activeSubtitleLanguage;
+      line.classList.toggle("is-active", active);
+      line.classList.toggle("is-inactive", !active);
+    }
     setCueField(panel, "xr", params.xr);
     setCueField(panel, "ui", params.ui);
     setCueField(panel, "vo", params.vo);
@@ -1247,6 +1257,10 @@ function startDashboard() {
     status.classList.toggle("is-running", running);
     status.classList.toggle("is-stopped", !running);
     setText(
+      sequencePanel.querySelector('[data-seq-field="subtitle-lang"]'),
+      `SUB ${subtitleLanguage().toUpperCase()}`
+    );
+    setText(
       sequencePanel.querySelector('[data-seq-field="cue-current"]'),
       stepIndex === null ? "—" : cueNumberLabel(step, stepIndex)
     );
@@ -1279,20 +1293,23 @@ function startDashboard() {
     const controllable = canSequenceControl();
     controls.start.disabled = !controllable || running || steps.length === 0;
     controls.stop.disabled = !controllable || !running;
+    controls.reset.disabled = !controllable || steps.length === 0;
     controls.prev.disabled =
       !controllable || stepIndex === null || stepIndex <= 0;
     controls.next.disabled =
       !controllable ||
       stepIndex === null ||
       stepIndex >= steps.length - 1;
-    const subtitleToggle = sequencePanel.querySelector(
-      '[data-action="toggle-subtitle"][data-lang="zh"]'
-    );
-    subtitleToggle.disabled = !controllable;
-    subtitleToggle.setAttribute(
-      "aria-pressed",
-      String(subtitleEnabled())
-    );
+    const activeSubtitleLanguage = subtitleLanguage();
+    for (const button of sequencePanel.querySelectorAll(
+      '[data-action="set-subtitle-lang"][data-lang]'
+    )) {
+      button.disabled = !controllable;
+      button.setAttribute(
+        "aria-pressed",
+        String(button.dataset.lang === activeSubtitleLanguage)
+      );
+    }
 
     renderCuePanel(cuePanels.now, step, stepIndex ?? 0, "now");
     renderCuePanel(
@@ -1374,7 +1391,7 @@ function startDashboard() {
           message.subtitleState &&
           typeof message.subtitleState === "object"
             ? message.subtitleState
-            : { langs: { zh: true } };
+            : { lang: "kr" };
         applyDevices(message.devices);
         renderSequence();
         return;
@@ -1542,7 +1559,7 @@ function startDashboard() {
     let demoSequence = null;
     let demoSeqState = null;
     let demoTracks = [];
-    let demoSubtitleState = { langs: { zh: true } };
+    let demoSubtitleState = { lang: "kr" };
 
     function makeDemoDevices() {
       const nowMs = Date.now();
@@ -1599,7 +1616,7 @@ function startDashboard() {
       }
       demoSequence = sequence;
       demoSeqState = makeSeqState(0, false, Date.now());
-      demoSubtitleState = { langs: { zh: true } };
+      demoSubtitleState = { lang: "kr" };
       demoTracks = (Array.isArray(sequence.music)
         ? sequence.music
         : []
@@ -1638,6 +1655,10 @@ function startDashboard() {
         case "stop":
           running = false;
           break;
+        case "reset":
+          running = false;
+          nextIndex = 0;
+          break;
         case "next":
           nextIndex = Math.min(lastIndex, previousIndex + 1);
           break;
@@ -1659,7 +1680,9 @@ function startDashboard() {
       }
 
       const enteredAtServerMs =
-        nextIndex !== previousIndex || message.action === "start"
+        nextIndex !== previousIndex ||
+        message.action === "start" ||
+        message.action === "reset"
           ? Date.now()
           : demoSeqState.enteredAtServerMs;
       demoSeqState = makeSeqState(
@@ -1668,6 +1691,23 @@ function startDashboard() {
         enteredAtServerMs
       );
       handleJsonMessage({ t: "seqState", ...demoSeqState });
+
+      if (message.action === "reset") {
+        for (const track of demoTracks) {
+          track.playing = false;
+          track.startedAtServerMs = null;
+        }
+        demoSubtitleState = { lang: "kr" };
+        handleJsonMessage({
+          t: "musicState",
+          tracks: demoTracks.map((track) => ({ ...track }))
+        });
+        handleJsonMessage({
+          t: "subtitleState",
+          ...demoSubtitleState
+        });
+      }
+
       return true;
     }
 
@@ -1691,14 +1731,11 @@ function startDashboard() {
     }
 
     function applySubtitleCommand(message) {
-      if (
-        message.lang !== "zh" ||
-        typeof message.enabled !== "boolean"
-      ) {
+      if (!SUBTITLE_LANGS.has(message.lang)) {
         return false;
       }
       demoSubtitleState = {
-        langs: { zh: message.enabled }
+        lang: message.lang
       };
       handleJsonMessage({
         t: "subtitleState",
@@ -1827,8 +1864,21 @@ function startDashboard() {
       }
       return;
     }
-    if (button.dataset.action === "toggle-subtitle") {
-      sendJson(makeSubtitleToggleMessage(subtitleEnabled()));
+    if (button.dataset.action === "set-subtitle-lang") {
+      const message = makeSubtitleLangMessage(
+        subtitleLanguage(),
+        button.dataset.lang
+      );
+      if (message) {
+        sendJson(message);
+      }
+      return;
+    }
+    if (button.dataset.seqAction === "reset") {
+      if (!window.confirm(RESET_CONFIRM_MESSAGE)) {
+        return;
+      }
+      sendJson({ t: "seqCommand", action: "reset" });
       return;
     }
     if (button.dataset.seqAction) {

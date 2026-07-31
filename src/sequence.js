@@ -254,6 +254,10 @@ export function createSequenceController(sequence, { now = Date.now } = {}) {
         nextRunning = true;
         nextStepIndex = 0;
         break;
+      case "reset":
+        nextRunning = false;
+        nextStepIndex = 0;
+        break;
       case "stop":
         nextRunning = false;
         break;

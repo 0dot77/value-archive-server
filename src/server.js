@@ -18,6 +18,7 @@ import {
 const DISCOVERY_REQUEST = "VA_DISCOVER?";
 const VALID_ROLES = new Set(["A", "B"]);
 const VALID_PREVIEW_SOURCES = new Set(["eye", "pca"]);
+const VALID_SUBTITLE_LANGS = new Set(["kr", "en", "zh"]);
 const CLIENT_CONTEXT = Symbol("valueArchiveClientContext");
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -118,6 +119,16 @@ function readVaPort() {
     );
   }
   return port;
+}
+
+export function resolveHttpPort(options = {}) {
+  if (!isObject(options)) {
+    throw new TypeError("options must be an object");
+  }
+  return requirePort(
+    options.httpPort ?? options.port ?? readVaPort() ?? 8765,
+    "httpPort"
+  );
 }
 
 function requirePositiveInterval(value, name) {
@@ -373,10 +384,7 @@ export function createValueArchiveServer(options = {}) {
     options.httpHost ?? options.host ?? "0.0.0.0",
     "httpHost"
   );
-  const httpPort = requirePort(
-    options.httpPort ?? options.port ?? readVaPort() ?? 8765,
-    "httpPort"
-  );
+  const httpPort = resolveHttpPort(options);
   const udpHost = requireNonEmptyString(
     options.udpHost ?? "0.0.0.0",
     "udpHost"
@@ -585,9 +593,7 @@ export function createValueArchiveServer(options = {}) {
     }
 
     return {
-      langs: {
-        zh: subtitleState.zh
-      }
+      lang: subtitleState.lang
     };
   }
 
@@ -793,6 +799,21 @@ export function createValueArchiveServer(options = {}) {
       `Sequence action=${JSON.stringify(action)} running=${state.running} ` +
         `stepIndex=${state.stepIndex} stepId=${JSON.stringify(state.stepId)}`
     );
+
+    if (action === "reset") {
+      for (const track of musicTracks ?? []) {
+        track.playing = false;
+        track.startedAtServerMs = null;
+      }
+      subtitleState.lang = "kr";
+      const musicState = buildMusicState();
+      const nextSubtitleState = buildSubtitleState();
+      broadcastSequenceState(state);
+      broadcastMusicState(musicState);
+      broadcastSubtitleState(nextSubtitleState);
+      return state;
+    }
+
     broadcastSequenceState(state);
 
     if (action === "stop") {
@@ -804,19 +825,13 @@ export function createValueArchiveServer(options = {}) {
     return state;
   }
 
-  function runSubtitleCommand(lang, enabled) {
-    if (lang !== "zh") {
-      throw new TypeError('lang must be "zh"');
-    }
-    if (typeof enabled !== "boolean") {
-      throw new TypeError("enabled must be a boolean");
+  function runSubtitleCommand(lang) {
+    if (!VALID_SUBTITLE_LANGS.has(lang)) {
+      throw new TypeError('lang must be one of "kr", "en", or "zh"');
     }
 
-    subtitleState.zh = enabled;
-    emitLog(
-      "info",
-      `Subtitle lang=${JSON.stringify(lang)} enabled=${enabled}`
-    );
+    subtitleState.lang = lang;
+    emitLog("info", `Subtitle lang=${JSON.stringify(lang)}`);
     const nextSubtitleState = buildSubtitleState();
     broadcastSubtitleState(nextSubtitleState);
     return nextSubtitleState;
@@ -1011,7 +1026,7 @@ export function createValueArchiveServer(options = {}) {
           return;
 
         case "subtitleCommand":
-          runSubtitleCommand(message.lang, message.enabled);
+          runSubtitleCommand(message.lang);
           return;
 
         case "requestFrame": {
@@ -1280,10 +1295,7 @@ export function createValueArchiveServer(options = {}) {
       if (!isObject(request.body)) {
         throw new TypeError("request body must be a JSON object");
       }
-      const nextSubtitleState = runSubtitleCommand(
-        request.body.lang,
-        request.body.enabled
-      );
+      const nextSubtitleState = runSubtitleCommand(request.body.lang);
       response.json({ ok: true, subtitleState: nextSubtitleState });
     } catch (error) {
       const isValidationError = error instanceof TypeError;
@@ -1361,7 +1373,7 @@ export function createValueArchiveServer(options = {}) {
         playing: false,
         startedAtServerMs: null
       }));
-      subtitleState = { zh: true };
+      subtitleState = { lang: "kr" };
       devices.clear();
       advertiseIp = selectStartupAdvertiseIp();
 

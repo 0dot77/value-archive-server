@@ -11,6 +11,7 @@ import WebSocket from "ws";
 import {
   createValueArchiveServer,
   isIpv4InSubnet,
+  resolveHttpPort,
   selectAdvertiseIp
 } from "../src/server.js";
 
@@ -78,9 +79,7 @@ const initialMusicState = {
 };
 
 const initialSubtitleState = {
-  langs: {
-    zh: true
-  }
+  lang: "kr"
 };
 
 const completeHealth = {
@@ -531,14 +530,15 @@ test("selectAdvertiseIp prioritizes override, requester subnet, and fallbacks", 
   );
 });
 
-test("uses TCP port 8765 when no HTTP port option or VA_PORT is set", async (t) => {
+test("resolves TCP port 8765 when no HTTP port option or VA_PORT is set", async () => {
   await withVaPort(undefined, async () => {
-    const fixture = await createRunningServer(t, {}, {
-      httpPort: undefined,
-      port: undefined
-    });
-
-    assert.equal(fixture.addresses.http.port, 8765);
+    assert.equal(
+      resolveHttpPort({
+        httpPort: undefined,
+        port: undefined
+      }),
+      8765
+    );
   });
 });
 
@@ -641,7 +641,7 @@ test("serves exact REST state and validates assignment and sequence commands", a
   stateCopy.sequence.steps[0].title = "mutated";
   stateCopy.seqState.params.cue = "mutated";
   stateCopy.musicState.tracks[0].playing = true;
-  stateCopy.subtitleState.langs.zh = false;
+  stateCopy.subtitleState.lang = "zh";
   assert.equal(fixture.server.getState().sequence.steps[0].title, "Intro");
   assert.equal(fixture.server.getState().seqState.params.cue, "standby");
   assert.equal(
@@ -696,8 +696,48 @@ test("serves exact REST state and validates assignment and sequence commands", a
   assert.equal(started.json.seqState.running, true);
   assert.equal(started.json.seqState.stepIndex, 0);
 
+  const advanced = await requestJson(`${fixture.httpBaseUrl}/api/seq`, {
+    method: "POST",
+    body: { action: "next" }
+  });
+  assert.equal(advanced.response.status, 200);
+  assert.equal(advanced.json.seqState.running, true);
+  assert.equal(advanced.json.seqState.stepIndex, 1);
+
+  const playingMusic = await requestJson(
+    `${fixture.httpBaseUrl}/api/music`,
+    {
+      method: "POST",
+      body: { trackId: "amb_1_2", action: "play" }
+    }
+  );
+  assert.equal(playingMusic.response.status, 200);
+  assert.equal(playingMusic.json.musicState.tracks[0].playing, true);
+
+  const mandarin = await requestJson(
+    `${fixture.httpBaseUrl}/api/subtitle`,
+    {
+      method: "POST",
+      body: { lang: "zh" }
+    }
+  );
+  assert.equal(mandarin.response.status, 200);
+  assert.equal(mandarin.json.subtitleState.lang, "zh");
+
+  const reset = await requestJson(`${fixture.httpBaseUrl}/api/seq`, {
+    method: "POST",
+    body: { action: "reset" }
+  });
+  assert.equal(reset.response.status, 200);
+  assert.equal(reset.json.ok, true);
+  assert.equal(reset.json.seqState.running, false);
+  assert.equal(reset.json.seqState.stepIndex, 0);
+
   const current = await requestJson(`${fixture.httpBaseUrl}/api/state`);
-  assert.equal(current.json.seqState.running, true);
+  assert.equal(current.json.seqState.running, false);
+  assert.equal(current.json.seqState.stepIndex, 0);
+  assert.deepEqual(current.json.musicState, initialMusicState);
+  assert.deepEqual(current.json.subtitleState, initialSubtitleState);
 });
 
 test("POST /api/music returns and broadcasts state and rejects invalid commands", async (t) => {
@@ -782,7 +822,7 @@ test("POST /api/music returns and broadcasts state and rejects invalid commands"
   );
 });
 
-test("POST /api/subtitle returns and broadcasts state and rejects invalid commands", async (t) => {
+test("POST /api/subtitle selects and broadcasts absolute languages", async (t) => {
   const fixture = await createRunningServer(t);
   const dashboard = await openPeer(t, fixture.wsUrl);
   const quest = await openPeer(t, fixture.wsUrl);
@@ -802,13 +842,13 @@ test("POST /api/subtitle returns and broadcasts state and rejects invalid comman
     `${fixture.httpBaseUrl}/api/subtitle`,
     {
       method: "POST",
-      body: { lang: "zh", enabled: false }
+      body: { lang: "zh" }
     }
   );
   assert.equal(response.response.status, 200);
   assert.deepEqual(response.json, {
     ok: true,
-    subtitleState: { langs: { zh: false } }
+    subtitleState: { lang: "zh" }
   });
 
   const [dashboardState, questState] = await Promise.all([
@@ -817,7 +857,7 @@ test("POST /api/subtitle returns and broadcasts state and rejects invalid comman
   ]);
   const expectedMessage = {
     t: "subtitleState",
-    langs: { zh: false }
+    lang: "zh"
   };
   assert.deepEqual(dashboardState, expectedMessage);
   assert.deepEqual(questState, expectedMessage);
@@ -826,9 +866,28 @@ test("POST /api/subtitle returns and broadcasts state and rejects invalid comman
     /Timed out waiting for JSON message subtitleState/
   );
 
+  const reselected = await requestJson(
+    `${fixture.httpBaseUrl}/api/subtitle`,
+    {
+      method: "POST",
+      body: { lang: "zh" }
+    }
+  );
+  assert.equal(reselected.response.status, 200);
+  assert.deepEqual(reselected.json, {
+    ok: true,
+    subtitleState: { lang: "zh" }
+  });
+  const [dashboardReselected, questReselected] = await Promise.all([
+    dashboard.nextJson("subtitleState"),
+    quest.nextJson("subtitleState")
+  ]);
+  assert.deepEqual(dashboardReselected, expectedMessage);
+  assert.deepEqual(questReselected, expectedMessage);
+
   for (const body of [
-    { lang: "en", enabled: true },
-    { lang: "zh", enabled: "true" },
+    { lang: "fr" },
+    { lang: "" },
     {}
   ]) {
     const invalid = await requestJson(
@@ -844,7 +903,7 @@ test("POST /api/subtitle returns and broadcasts state and rejects invalid comman
     assert.equal(typeof invalid.json.error?.message, "string");
   }
   assert.deepEqual(fixture.server.getState().subtitleState, {
-    langs: { zh: false }
+    lang: "zh"
   });
   await assert.rejects(
     dashboard.nextJson("subtitleState", () => true, 80),
@@ -1129,7 +1188,7 @@ test("dashboard music commands broadcast play, replay, and stop state to every w
   );
 });
 
-test("dashboard subtitle commands broadcast state and reject invalid payloads", async (t) => {
+test("dashboard subtitle commands select languages and reject invalid payloads", async (t) => {
   const fixture = await createRunningServer(t);
   const dashboard = await openPeer(t, fixture.wsUrl);
   const quest = await openPeer(t, fixture.wsUrl);
@@ -1149,28 +1208,57 @@ test("dashboard subtitle commands broadcast state and reject invalid payloads", 
 
   dashboard.sendJson({
     t: "subtitleCommand",
-    lang: "zh",
-    enabled: false
+    lang: "en"
   });
-  const [dashboardDisabled, questDisabled] = await Promise.all([
+  const [dashboardEnglish, questEnglish] = await Promise.all([
     dashboard.nextJson("subtitleState"),
     quest.nextJson("subtitleState")
   ]);
-  const disabledState = {
+  const englishState = {
     t: "subtitleState",
-    langs: { zh: false }
+    lang: "en"
   };
-  assert.deepEqual(dashboardDisabled, disabledState);
-  assert.deepEqual(questDisabled, disabledState);
+  assert.deepEqual(dashboardEnglish, englishState);
+  assert.deepEqual(questEnglish, englishState);
+
+  dashboard.sendJson({
+    t: "subtitleCommand",
+    lang: "zh"
+  });
+  const [dashboardMandarin, questMandarin] = await Promise.all([
+    dashboard.nextJson("subtitleState"),
+    quest.nextJson("subtitleState")
+  ]);
+  const mandarinState = {
+    t: "subtitleState",
+    lang: "zh"
+  };
+  assert.deepEqual(dashboardMandarin, mandarinState);
+  assert.deepEqual(questMandarin, mandarinState);
+
+  dashboard.sendJson({
+    t: "subtitleCommand",
+    lang: "kr"
+  });
+  const [dashboardKorean, questKorean] = await Promise.all([
+    dashboard.nextJson("subtitleState"),
+    quest.nextJson("subtitleState")
+  ]);
+  const koreanState = {
+    t: "subtitleState",
+    lang: "kr"
+  };
+  assert.deepEqual(dashboardKorean, koreanState);
+  assert.deepEqual(questKorean, koreanState);
   await assert.rejects(
     unwelcomed.nextJson("subtitleState", () => true, 80),
     /Timed out waiting for JSON message subtitleState/
   );
 
   for (const command of [
-    { t: "subtitleCommand", lang: "en", enabled: true },
-    { t: "subtitleCommand", lang: "zh", enabled: 1 },
-    { t: "subtitleCommand", lang: "zh" }
+    { t: "subtitleCommand", lang: "fr" },
+    { t: "subtitleCommand", lang: null },
+    { t: "subtitleCommand" }
   ]) {
     dashboard.sendJson(command);
     const error = await dashboard.nextJson("error");
@@ -1179,7 +1267,7 @@ test("dashboard subtitle commands broadcast state and reject invalid payloads", 
     assert.equal(typeof error.message, "string");
   }
   assert.deepEqual(fixture.server.getState().subtitleState, {
-    langs: { zh: false }
+    lang: "kr"
   });
   await assert.rejects(
     dashboard.nextJson("subtitleState", () => true, 80),
@@ -1212,12 +1300,11 @@ test("stop and start reset all runtime music and subtitle state", async (t) => {
 
   dashboard.sendJson({
     t: "subtitleCommand",
-    lang: "zh",
-    enabled: false
+    lang: "zh"
   });
   assert.deepEqual(await dashboard.nextJson("subtitleState"), {
     t: "subtitleState",
-    langs: { zh: false }
+    lang: "zh"
   });
 
   await fixture.server.stop();
@@ -1678,6 +1765,128 @@ test("stop drains queued WebSocket assignments before resolving or restarting", 
     JSON.parse(await readFile(fixture.registryFilePath, "utf8")),
     expectedAssignments
   );
+});
+
+test("dashboard reset restores show state and broadcasts sequence, music, and subtitles", async (t) => {
+  const fixture = await createRunningServer(t, {}, {
+    now: () => 17_000
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const quest = await openPeer(t, fixture.wsUrl);
+  const unwelcomed = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-reset"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    quest.nextJson("welcome")
+  ]);
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  await Promise.all([
+    dashboard.nextJson("seqState", (message) => message.running === true),
+    quest.nextJson("seqState", (message) => message.running === true)
+  ]);
+  dashboard.sendJson({ t: "seqCommand", action: "next" });
+  await Promise.all([
+    dashboard.nextJson("seqState", (message) => message.stepIndex === 1),
+    quest.nextJson("seqState", (message) => message.stepIndex === 1)
+  ]);
+
+  for (const trackId of ["amb_1_2", "mus_2_1"]) {
+    dashboard.sendJson({ t: "musicCommand", trackId, action: "play" });
+    await Promise.all([
+      dashboard.nextJson(
+        "musicState",
+        (message) => musicTrackFrom(message, trackId)?.playing === true
+      ),
+      quest.nextJson(
+        "musicState",
+        (message) => musicTrackFrom(message, trackId)?.playing === true
+      )
+    ]);
+  }
+  dashboard.sendJson({ t: "subtitleCommand", lang: "zh" });
+  await Promise.all([
+    dashboard.nextJson(
+      "subtitleState",
+      (message) => message.lang === "zh"
+    ),
+    quest.nextJson("subtitleState", (message) => message.lang === "zh")
+  ]);
+
+  dashboard.sendJson({ t: "seqCommand", action: "reset" });
+  const resetStateTypes = new Set([
+    "seqState",
+    "musicState",
+    "subtitleState"
+  ]);
+  async function nextResetStates(peer) {
+    const messages = [];
+    while (messages.length < resetStateTypes.size) {
+      const item = await peer.next(
+        (candidate) =>
+          !candidate.isBinary &&
+          resetStateTypes.has(candidate.json?.t),
+        "ordered reset state message"
+      );
+      messages.push(item.json);
+    }
+    return messages;
+  }
+  const [dashboardStates, questStates] = await Promise.all([
+    nextResetStates(dashboard),
+    nextResetStates(quest)
+  ]);
+  assert.deepEqual(
+    dashboardStates.map((message) => message.t),
+    ["seqState", "musicState", "subtitleState"]
+  );
+  assert.deepEqual(
+    questStates.map((message) => message.t),
+    ["seqState", "musicState", "subtitleState"]
+  );
+  const [dashboardSeq, dashboardMusic, dashboardSubtitle] =
+    dashboardStates;
+  const [questSeq, questMusic, questSubtitle] = questStates;
+
+  for (const seqState of [dashboardSeq, questSeq]) {
+    assert.equal(seqState.running, false);
+    assert.equal(seqState.stepIndex, 0);
+  }
+  for (const musicState of [dashboardMusic, questMusic]) {
+    assert.ok(musicState.tracks.every((track) => !track.playing));
+    assert.ok(
+      musicState.tracks.every(
+        (track) => track.startedAtServerMs === null
+      )
+    );
+  }
+  assert.deepEqual(dashboardSubtitle, { t: "subtitleState", lang: "kr" });
+  assert.deepEqual(questSubtitle, { t: "subtitleState", lang: "kr" });
+  assert.deepEqual(fixture.server.getState().seqState, {
+    sequenceId: "performance-v1",
+    running: false,
+    stepIndex: 0,
+    stepId: "intro",
+    enteredAtServerMs: 17_000,
+    params: { cue: "standby" }
+  });
+  assert.deepEqual(fixture.server.getState().musicState, initialMusicState);
+  assert.deepEqual(
+    fixture.server.getState().subtitleState,
+    initialSubtitleState
+  );
+
+  for (const type of ["seqState", "musicState", "subtitleState"]) {
+    await assert.rejects(
+      unwelcomed.nextJson(type, () => true, 80),
+      new RegExp(`Timed out waiting for JSON message ${type}`)
+    );
+  }
 });
 
 test("allows only dashboards to drive sequence state and broadcasts REST and WS transitions", async (t) => {

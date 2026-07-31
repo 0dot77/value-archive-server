@@ -369,6 +369,28 @@ test("start selects index zero and stop preserves the selected step", () => {
   });
 });
 
+test("reset selects index zero and stops a running sequence, unlike start", () => {
+  const timestamps = [10, 20, 30, 40];
+  const controller = createSequenceController(clone(validSequence), {
+    now: () => timestamps.shift()
+  });
+
+  assert.equal(controller.command("start").running, true);
+
+  const beforeReset = controller.command("goto", 2);
+  assert.equal(beforeReset.running, true);
+  assert.equal(beforeReset.stepIndex, 2);
+
+  assert.deepEqual(controller.command("reset"), {
+    sequenceId: "performance-v1",
+    running: false,
+    stepIndex: 0,
+    stepId: "intro",
+    enteredAtServerMs: 40,
+    params: { cue: { color: "blue" } }
+  });
+});
+
 test("next and prev clamp while every valid command gets a fresh timestamp", () => {
   let timestamp = 100;
   const controller = createSequenceController(clone(validSequence), {

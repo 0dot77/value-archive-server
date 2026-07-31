@@ -13,7 +13,7 @@ import {
   loadDemoSequence,
   makePongMessage,
   makeMusicToggleMessage,
-  makeSubtitleToggleMessage,
+  makeSubtitleLangMessage,
   makeUnassignedRenderKey,
   makeWebSocketUrl,
   needsJumpConfirmation,
@@ -324,17 +324,28 @@ test("builds music play and stop commands from the current track state", () => {
   assert.equal(makeMusicToggleMessage({ trackId: "" }), null);
 });
 
-test("builds Mandarin subtitle commands by inverting the current state", () => {
-  assert.deepEqual(makeSubtitleToggleMessage(true), {
+test("builds subtitle language commands and returns active buttons to Korean", () => {
+  assert.deepEqual(makeSubtitleLangMessage("kr", "en"), {
     t: "subtitleCommand",
-    lang: "zh",
-    enabled: false
+    lang: "en"
   });
-  assert.deepEqual(makeSubtitleToggleMessage(false), {
+  assert.deepEqual(makeSubtitleLangMessage("kr", "zh"), {
     t: "subtitleCommand",
-    lang: "zh",
-    enabled: true
+    lang: "zh"
   });
+  assert.deepEqual(makeSubtitleLangMessage("en", "en"), {
+    t: "subtitleCommand",
+    lang: "kr"
+  });
+  assert.deepEqual(makeSubtitleLangMessage("zh", "zh"), {
+    t: "subtitleCommand",
+    lang: "kr"
+  });
+  assert.deepEqual(makeSubtitleLangMessage("en", "zh"), {
+    t: "subtitleCommand",
+    lang: "zh"
+  });
+  assert.equal(makeSubtitleLangMessage("kr", "fr"), null);
 });
 
 test("normalizes missing and legacy cue params without throwing", () => {
@@ -545,6 +556,7 @@ test("provides semantic A/B, unassigned, sequence, and preview-control hooks", a
     'data-seq-action="start"',
     'data-seq-action="stop"',
     'data-seq-action="prev"',
+    'data-seq-action="reset"',
     'data-seq-action="next"'
   ]) {
     assert.match(html, new RegExp(hook), `missing hook: ${hook}`);
@@ -596,6 +608,7 @@ test("provides the compact cue-console structure and labels", async () => {
   assert.match(html, />START</);
   assert.match(html, />STOP</);
   assert.match(html, />PREV</);
+  assert.match(html, />RESET</);
   assert.match(html, />✱ NEXT CUE</);
   for (const label of [
     "❖ XR",
@@ -613,49 +626,132 @@ test("provides the compact cue-console structure and labels", async () => {
   }
 });
 
-test("exposes the Mandarin subtitle control and ZH copy state in both cue panels", async () => {
+test("exposes two replacement subtitle buttons and active cue-copy hooks", async () => {
   const [html, css] = await Promise.all([
     readFile(htmlPath, "utf8"),
     readFile(stylePath, "utf8")
   ]);
-  const toggle = html.match(
-    /<button\b[^>]*data-action="toggle-subtitle"[^>]*>[\s\S]*?<\/button>/
+  const buttonLayout = css.match(
+    /\.transport-secondary \.subtitle-language\s*\{([^}]*)\}/s
+  )?.[1];
+  const activeLanguage = css.match(
+    /\.subtitle-language\[aria-pressed="true"\]\s*\{([^}]*)\}/s
+  )?.[1];
+  const activeLine = css.match(
+    /\.cue-copy__line\.is-active\s*\{([^}]*)\}/s
+  )?.[1];
+  const inactiveLine = css.match(
+    /\.cue-copy__line\.is-inactive\s*\{([^}]*)\}/s
+  )?.[1];
+  const subtitleStatus = css.match(
+    /\.subtitle-status\s*\{([^}]*)\}/s
+  )?.[1];
+
+  const buttons = [
+    ...html.matchAll(
+      /<button\b[^>]*data-action="set-subtitle-lang"[^>]*>[\s\S]*?<\/button>/g
+    )
+  ].map(([button]) => button);
+  assert.equal(buttons.length, 2);
+  for (const [lang, label] of [
+    ["en", "EN 자막"],
+    ["zh", "만다린 자막"]
+  ]) {
+    const button = buttons.find((candidate) =>
+      new RegExp(`\\bdata-lang="${lang}"`).test(candidate)
+    );
+    assert.ok(button, `missing ${lang} subtitle language button`);
+    assert.match(button, /\bdata-server-control\b/);
+    assert.match(button, /\bdisabled\b/);
+    assert.match(button, /\baria-pressed="false"/);
+    assert.match(button, new RegExp(`>${label}<\\/button>`));
+  }
+  assert.doesNotMatch(
+    html,
+    /data-action="set-subtitle-lang"[^>]*data-lang="kr"/
+  );
+  assert.match(
+    html,
+    /id="transport-status"[\s\S]*data-seq-field="subtitle-lang"[^>]*>SUB KR</
+  );
+  assert.ok(subtitleStatus, "missing compact subtitle status label");
+  assert.match(subtitleStatus, /font-family:[^;]*monospace;/);
+  assert.match(subtitleStatus, /font-size:\s*[^;]+;/);
+
+  assert.ok(buttonLayout, "missing subtitle button layout");
+  assert.match(buttonLayout, /grid-column:\s*span 2;/);
+  assert.ok(activeLanguage, "missing selected subtitle language state");
+  assert.match(activeLanguage, /border-color:\s*var\(--invert-bg\);/);
+  assert.match(activeLanguage, /background:\s*var\(--invert-bg\);/);
+  assert.match(activeLanguage, /color:\s*var\(--invert-text\);/);
+
+  for (const lang of ["kr", "en", "zh"]) {
+    assert.equal(
+      (
+        html.match(
+          new RegExp(
+            `class="[^"]*\\bcue-copy__line\\b[^"]*"[^>]*data-cue-lang="${lang}"`,
+            "g"
+          )
+        ) ?? []
+      ).length,
+      2
+    );
+  }
+  assert.ok(activeLine, "missing active cue-copy language state");
+  assert.match(activeLine, /color:\s*var\(--text\);/);
+  assert.match(activeLine, /opacity:\s*1;/);
+  assert.ok(inactiveLine, "missing inactive cue-copy language state");
+  assert.match(inactiveLine, /color:\s*var\(--text-dim\);/);
+  assert.match(inactiveLine, /opacity:\s*[^;]+;/);
+  assert.doesNotMatch(css, /text-decoration:\s*line-through;/);
+});
+
+test("gates the outlined RESET control behind the exact confirmation", async () => {
+  const [html, css, source] = await Promise.all([
+    readFile(htmlPath, "utf8"),
+    readFile(stylePath, "utf8"),
+    readFile(appPath, "utf8")
+  ]);
+  const resetButton = html.match(
+    /<button\b[^>]*data-seq-action="reset"[^>]*>RESET<\/button>/
   )?.[0];
-  const enabledToggle = css.match(
-    /\.subtitle-toggle\[aria-pressed="true"\]\s*\{([^}]*)\}/s
+  const resetStyle = css.match(
+    /\.reset-control\s*\{([^}]*)\}/s
   )?.[1];
-  const zhCopy = css.match(
-    /(?:^|\n)\.cue-copy__zh\s*\{([^}]*)\}/s
+  const resetHover = css.match(
+    /\.reset-control:hover:not\(:disabled\)\s*\{([^}]*)\}/s
   )?.[1];
-  const disabledZh = css.match(
-    /\.cue-copy__zh\.is-disabled\s*\{([^}]*)\}/s
-  )?.[1];
+  const resetBranch = source.match(
+    /if \(button\.dataset\.seqAction === "reset"\)\s*\{[\s\S]*?sendJson\(\{\s*t:\s*"seqCommand",\s*action:\s*"reset"\s*\}\);[\s\S]*?return;\s*\}/
+  )?.[0];
 
-  assert.ok(toggle, "missing Mandarin subtitle toggle");
-  assert.match(toggle, /\bdata-lang="zh"/);
-  assert.match(toggle, /\bdata-server-control\b/);
-  assert.match(toggle, /\baria-pressed="true"/);
-  assert.match(toggle, /\bdisabled\b/);
-  assert.match(toggle, /만다린 자막 ZH/);
-  assert.equal(
-    (html.match(/class="cue-copy__label">ZH<\/p>/g) ?? []).length,
-    2
-  );
-  assert.equal(
-    (html.match(/data-cue-field="text-zh"/g) ?? []).length,
-    2
-  );
+  assert.ok(resetButton, "missing RESET transport control");
+  assert.match(resetButton, /\bclass="[^"]*\breset-control\b/);
+  assert.match(resetButton, /\bdata-server-control\b/);
+  assert.match(resetButton, /\bdisabled\b/);
+  assert.ok(resetStyle, "missing RESET outline style");
+  assert.match(resetStyle, /border-style:\s*dashed;/);
+  assert.match(resetStyle, /color:\s*var\(--text-dim\);/);
+  assert.doesNotMatch(resetStyle, /var\(--invert-(?:bg|text)\)/);
+  assert.ok(resetHover, "missing RESET hover style");
+  assert.match(resetHover, /border-color:\s*var\(--text\);/);
+  assert.doesNotMatch(resetHover, /var\(--invert-(?:bg|text)\)/);
 
-  assert.ok(enabledToggle, "missing enabled subtitle-toggle state");
-  assert.match(enabledToggle, /border-color:\s*var\(--invert-bg\);/);
-  assert.match(enabledToggle, /background:\s*var\(--invert-bg\);/);
-  assert.match(enabledToggle, /color:\s*var\(--invert-text\);/);
-  assert.ok(zhCopy, "missing Mandarin cue-copy style");
-  assert.match(zhCopy, /white-space:\s*pre-line;/);
-  assert.ok(disabledZh, "missing disabled Mandarin cue-copy style");
-  assert.match(disabledZh, /opacity:\s*[^;]+;/);
-  assert.match(disabledZh, /color:\s*var\(--text-dim\);/);
-  assert.match(disabledZh, /text-decoration:\s*line-through;/);
+  assert.match(
+    source,
+    /const RESET_CONFIRM_MESSAGE = "공연을 시작 전 상태로 리셋할까요\? 큐가 처음으로 돌아가고 음악이 모두 정지됩니다\."/
+  );
+  assert.ok(resetBranch, "missing RESET confirmation branch");
+  assert.match(
+    resetBranch,
+    /if \(!window\.confirm\(RESET_CONFIRM_MESSAGE\)\)\s*\{[\s\S]*?return;[\s\S]*?\}/
+  );
+  assert.ok(
+    resetBranch.indexOf("window.confirm") <
+      resetBranch.indexOf('action: "reset"'),
+    "confirmation must run before the reset command is sent"
+  );
 });
 
 test("keeps static dashboard copy free of playback pictograms and emoji", async () => {

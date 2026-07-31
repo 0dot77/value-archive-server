@@ -181,6 +181,15 @@ summary:focus-visible {
   gap: 0.75rem;
 }
 
+.subtitle-status {
+  color: var(--text-dim);
+  font-family: "Consolas", "SF Mono", "Courier New", monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+
 .cue-position {
   display: inline-flex;
   align-items: baseline;
@@ -307,7 +316,7 @@ summary:focus-visible {
 
 .transport-secondary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.55rem;
 }
 
@@ -325,20 +334,30 @@ summary:focus-visible {
   background: var(--panel-raised);
 }
 
-.transport-secondary .subtitle-toggle {
-  grid-column: 1 / -1;
-  min-height: 34px;
+.transport-secondary .reset-control {
   border-style: dashed;
+  color: var(--text-dim);
+}
+
+.reset-control:hover:not(:disabled) {
+  border-color: var(--text);
+  background: var(--panel-raised);
+  color: var(--text);
+}
+
+.transport-secondary .subtitle-language {
+  grid-column: span 2;
+  min-height: 34px;
   font-size: 0.7rem;
 }
 
-.subtitle-toggle[aria-pressed="true"] {
+.subtitle-language[aria-pressed="true"] {
   border-color: var(--invert-bg);
   background: var(--invert-bg);
   color: var(--invert-text);
 }
 
-.subtitle-toggle[aria-pressed="true"]:hover:not(:disabled) {
+.subtitle-language[aria-pressed="true"]:hover:not(:disabled) {
   border-color: var(--invert-bg);
   background: var(--invert-bg);
   color: var(--invert-text);
@@ -707,15 +726,23 @@ summary:focus-visible {
   color: var(--text-dim);
   font-size: 0.9rem;
   line-height: 1.55;
-  transition: opacity 120ms ease;
   white-space: pre-line;
 }
 
-.cue-copy__zh.is-disabled {
+.cue-copy__line {
+  transition:
+    color 120ms ease,
+    opacity 120ms ease;
+}
+
+.cue-copy__line.is-active {
+  opacity: 1;
+  color: var(--text);
+}
+
+.cue-copy__line.is-inactive {
   opacity: 0.42;
   color: var(--text-dim);
-  text-decoration: line-through;
-  text-decoration-thickness: 1px;
 }
 
 .cue-details {
