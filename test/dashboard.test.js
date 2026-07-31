@@ -13,6 +13,7 @@ import {
   loadDemoSequence,
   makePongMessage,
   makeMusicToggleMessage,
+  makeSubtitleToggleMessage,
   makeUnassignedRenderKey,
   makeWebSocketUrl,
   needsJumpConfirmation,
@@ -323,6 +324,19 @@ test("builds music play and stop commands from the current track state", () => {
   assert.equal(makeMusicToggleMessage({ trackId: "" }), null);
 });
 
+test("builds Mandarin subtitle commands by inverting the current state", () => {
+  assert.deepEqual(makeSubtitleToggleMessage(true), {
+    t: "subtitleCommand",
+    lang: "zh",
+    enabled: false
+  });
+  assert.deepEqual(makeSubtitleToggleMessage(false), {
+    t: "subtitleCommand",
+    lang: "zh",
+    enabled: true
+  });
+});
+
 test("normalizes missing and legacy cue params without throwing", () => {
   assert.deepEqual(normalizeCueParams(null), {
     cueNumber: null,
@@ -331,6 +345,7 @@ test("normalizes missing and legacy cue params without throwing", () => {
     speaker: "",
     textKr: "",
     textEn: "",
+    textZh: "",
     lines: [],
     xr: "",
     ui: "",
@@ -345,6 +360,7 @@ test("normalizes missing and legacy cue params without throwing", () => {
     normalizeCueParams({
       speaker: "우경",
       lines: ["첫 줄", "둘째 줄"],
+      textZh: "第一行\n第二行",
       voDurationMs: Number.NaN,
       musicCue: { trackId: "amb", action: "in", note: "지금" }
     }),
@@ -355,6 +371,7 @@ test("normalizes missing and legacy cue params without throwing", () => {
       speaker: "우경",
       textKr: "첫 줄\n둘째 줄",
       textEn: "",
+      textZh: "第一行\n第二行",
       lines: ["첫 줄", "둘째 줄"],
       xr: "",
       ui: "",
@@ -369,6 +386,7 @@ test("normalizes missing and legacy cue params without throwing", () => {
   assert.doesNotThrow(() =>
     normalizeCueParams({ lines: { malformed: true }, musicCue: "bad" })
   );
+  assert.equal(normalizeCueParams({ textZh: 123 }).textZh, "");
 });
 
 test("resolves operator shortcuts without browser globals", () => {
@@ -430,6 +448,49 @@ test("loads the canonical demo sequence from static or local read-only state", a
     fallback
   );
   assert.equal(fallbackResult, fallback);
+
+  const embedded = await loadDemoSequence(async () => {
+    throw new Error("offline");
+  });
+  assert.deepEqual(embedded.music, [
+    {
+      trackId: "father_1",
+      label: "father_1 · 엠비언스",
+      file: "father_1.mp3"
+    },
+    {
+      trackId: "father_2",
+      label: "father_2 · 흥미로운 음악",
+      file: "father_2.mp3"
+    },
+    {
+      trackId: "father_3",
+      label: "father_3",
+      file: "father_3.mp3"
+    },
+    {
+      trackId: "mus_reunion",
+      label: "추억속의 재회",
+      file: "mus_추억속의재회.mp3"
+    }
+  ]);
+  const embeddedTrackIds = new Set(
+    embedded.music.map((track) => track.trackId)
+  );
+  assert.ok(
+    embedded.steps.every(
+      (step) =>
+        typeof step.params?.textZh === "string" &&
+        step.params.textZh.length > 0
+    )
+  );
+  assert.ok(
+    embedded.steps.every(
+      (step) =>
+        !step.params?.musicCue ||
+        embeddedTrackIds.has(step.params.musicCue.trackId)
+    )
+  );
 });
 
 test("scrolls the current cue inside its list without moving outer views", () => {
@@ -552,6 +613,51 @@ test("provides the compact cue-console structure and labels", async () => {
   }
 });
 
+test("exposes the Mandarin subtitle control and ZH copy state in both cue panels", async () => {
+  const [html, css] = await Promise.all([
+    readFile(htmlPath, "utf8"),
+    readFile(stylePath, "utf8")
+  ]);
+  const toggle = html.match(
+    /<button\b[^>]*data-action="toggle-subtitle"[^>]*>[\s\S]*?<\/button>/
+  )?.[0];
+  const enabledToggle = css.match(
+    /\.subtitle-toggle\[aria-pressed="true"\]\s*\{([^}]*)\}/s
+  )?.[1];
+  const zhCopy = css.match(
+    /(?:^|\n)\.cue-copy__zh\s*\{([^}]*)\}/s
+  )?.[1];
+  const disabledZh = css.match(
+    /\.cue-copy__zh\.is-disabled\s*\{([^}]*)\}/s
+  )?.[1];
+
+  assert.ok(toggle, "missing Mandarin subtitle toggle");
+  assert.match(toggle, /\bdata-lang="zh"/);
+  assert.match(toggle, /\bdata-server-control\b/);
+  assert.match(toggle, /\baria-pressed="true"/);
+  assert.match(toggle, /\bdisabled\b/);
+  assert.match(toggle, /만다린 자막 ZH/);
+  assert.equal(
+    (html.match(/class="cue-copy__label">ZH<\/p>/g) ?? []).length,
+    2
+  );
+  assert.equal(
+    (html.match(/data-cue-field="text-zh"/g) ?? []).length,
+    2
+  );
+
+  assert.ok(enabledToggle, "missing enabled subtitle-toggle state");
+  assert.match(enabledToggle, /border-color:\s*var\(--invert-bg\);/);
+  assert.match(enabledToggle, /background:\s*var\(--invert-bg\);/);
+  assert.match(enabledToggle, /color:\s*var\(--invert-text\);/);
+  assert.ok(zhCopy, "missing Mandarin cue-copy style");
+  assert.match(zhCopy, /white-space:\s*pre-line;/);
+  assert.ok(disabledZh, "missing disabled Mandarin cue-copy style");
+  assert.match(disabledZh, /opacity:\s*[^;]+;/);
+  assert.match(disabledZh, /color:\s*var\(--text-dim\);/);
+  assert.match(disabledZh, /text-decoration:\s*line-through;/);
+});
+
 test("keeps static dashboard copy free of playback pictograms and emoji", async () => {
   const html = await readFile(htmlPath, "utf8");
 
@@ -632,13 +738,14 @@ test("keeps each role device identity outside collapsed health details", async (
   }
 });
 
-test("uses the exact light letterpress palette and local monospace stack", async () => {
-  const [html, css] = await Promise.all([
-    readFile(htmlPath, "utf8"),
-    readFile(stylePath, "utf8")
-  ]);
+test("uses the exact monochrome dark palette and local readable font stacks", async () => {
+  const css = await readFile(stylePath, "utf8");
   const root = css.match(/:root\s*\{([^}]*)\}/s)?.[1];
   const body = css.match(/body\s*\{([^}]*)\}/s)?.[1];
+  const codeTypography = css.match(
+    /\.cue-position,\s*\.cue-row__cn,\s*\.music-button__status,\s*\.vo-progress__time,\s*\.status-badge,\s*\.cue-position__label,\s*\.scene-group__range,\s*\.telemetry-grid dd\s*\{([^}]*)\}/s
+  )?.[1];
+  const button = css.match(/button\s*\{([^}]*)\}/s)?.[1];
 
   assert.ok(root, "missing :root palette");
   assert.deepEqual(
@@ -646,29 +753,42 @@ test("uses the exact light letterpress palette and local monospace stack", async
       ([, name, value]) => `${name}: ${value.trim()};`
     ),
     [
-      "--paper: #F0EDE5;",
-      "--paper-dim: #E7E3D8;",
-      "--ink: #16130F;",
-      "--ink-soft: #4A453C;",
-      "--frame: #571C18;",
-      "--stamp: #C0392B;",
-      "--stamp-soft: #E8B4AC;"
+      "--bg: #000000;",
+      "--panel: #111111;",
+      "--panel-raised: #1A1A1A;",
+      "--line: #2E2E2E;",
+      "--line-strong: #555555;",
+      "--text: #FFFFFF;",
+      "--text-dim: #969696;",
+      "--invert-bg: #FFFFFF;",
+      "--invert-text: #000000;"
     ]
   );
-  assert.match(root, /color-scheme:\s*light;/);
-  assert.match(html, /<meta name="color-scheme" content="light">/);
+  assert.match(root, /color-scheme:\s*dark;/);
   assert.ok(body, "missing body rule");
   assert.match(
     body,
-    /font-family:\s*"Courier New",\s*"Nanum Gothic Coding",\s*"MS Gothic",\s*"Apple SD Gothic Neo",\s*monospace;/
+    /font-family:\s*"Pretendard",\s*"Pretendard Variable",\s*"Apple SD Gothic Neo",\s*"Malgun Gothic",\s*"Segoe UI",\s*system-ui,\s*sans-serif;/
   );
-  assert.match(body, /background:\s*var\(--frame\);/);
+  assert.match(body, /background:\s*var\(--bg\);/);
+  assert.ok(codeTypography, "missing scoped monospace typography rule");
+  assert.match(
+    codeTypography,
+    /font-family:\s*"Consolas",\s*"SF Mono",\s*"Courier New",\s*monospace;/
+  );
+  assert.ok(button, "missing base button rule");
+  assert.doesNotMatch(button, /text-transform:\s*uppercase;/);
+  assert.doesNotMatch(button, /letter-spacing:/);
+  assert.doesNotMatch(
+    css,
+    /--(?:paper|paper-dim|ink|ink-soft|frame|stamp|stamp-soft)\b/
+  );
   assert.doesNotMatch(css, /@import\b|url\s*\(/i);
 });
 
-test("styles paper cards and high-priority states as ink and stamp impressions", async () => {
+test("styles dark panels and high-priority states with monochrome inversion", async () => {
   const css = await readFile(stylePath, "utf8");
-  const paperCards = css.match(
+  const panels = css.match(
     /\.cue-panel,\s*\.cue-sheet,\s*\.devices-panel,\s*\.unassigned-banner,\s*\.role-card\s*\{([^}]*)\}/s
   )?.[1];
   const operator = css.match(/\.operator-bar\s*\{([^}]*)\}/s)?.[1];
@@ -680,39 +800,43 @@ test("styles paper cards and high-priority states as ink and stamp impressions",
     /\.cue-row\.is-current,\s*\.cue-row\[aria-current="step"\]\s*\{([^}]*)\}/s
   )?.[1];
 
-  assert.ok(paperCards, "missing shared paper-card rule");
-  assert.match(paperCards, /border:\s*1\.5px solid var\(--ink\);/);
-  assert.match(paperCards, /border-radius:\s*[012](?:px)?;/);
-  assert.match(paperCards, /background:\s*var\(--paper\);/);
-  assert.match(paperCards, /box-shadow:\s*2px 2px 0 var\(--ink\);/);
+  assert.ok(panels, "missing shared dark-panel rule");
+  assert.match(panels, /border:\s*1px solid var\(--line\);/);
+  assert.match(panels, /background:\s*var\(--panel\);/);
+  assert.match(panels, /color:\s*var\(--text\);/);
+  assert.doesNotMatch(panels, /box-shadow:/);
   assert.doesNotMatch(css, /(?:backdrop-)?filter\s*:|text-shadow\s*:/i);
 
   assert.ok(operator, "missing operator bar rule");
-  assert.match(operator, /background:\s*var\(--ink\);/);
-  assert.match(operator, /color:\s*var\(--paper\);/);
+  assert.match(operator, /border:\s*1px solid var\(--line-strong\);/);
+  assert.match(operator, /background:\s*var\(--panel\);/);
+  assert.match(operator, /color:\s*var\(--text\);/);
 
   assert.ok(nextCue, "missing next-cue rule");
-  assert.match(nextCue, /border-color:\s*var\(--stamp\);/);
-  assert.match(nextCue, /background:\s*var\(--stamp\);/);
-  assert.match(nextCue, /color:\s*var\(--paper\);/);
+  assert.match(nextCue, /min-height:\s*48px;/);
+  assert.match(nextCue, /border-color:\s*var\(--invert-bg\);/);
+  assert.match(nextCue, /background:\s*var\(--invert-bg\);/);
+  assert.match(nextCue, /color:\s*var\(--invert-text\);/);
+  assert.doesNotMatch(nextCue, /text-transform:\s*uppercase;/);
+  assert.doesNotMatch(nextCue, /letter-spacing:/);
 
   assert.ok(playing, "missing playing music rule");
-  assert.match(playing, /border-color:\s*var\(--stamp\);/);
-  assert.match(playing, /background:\s*var\(--stamp\);/);
-  assert.match(playing, /color:\s*var\(--paper\);/);
+  assert.match(playing, /border-color:\s*var\(--invert-bg\);/);
+  assert.match(playing, /background:\s*var\(--invert-bg\);/);
+  assert.match(playing, /color:\s*var\(--invert-text\);/);
   assert.match(
     css,
-    /\.music-button__cue\s*\{[^}]*color:\s*var\(--stamp\);/s
+    /\.music-button__cue\s*\{[^}]*border-top:\s*1px dashed var\(--text\);/s
   );
 
   assert.ok(currentCue, "missing current cue-sheet row rule");
-  assert.match(currentCue, /border-color:\s*var\(--stamp\);/);
-  assert.match(currentCue, /background:\s*var\(--stamp-soft\);/);
-  assert.match(currentCue, /color:\s*var\(--ink\);/);
+  assert.match(currentCue, /border-color:\s*var\(--invert-bg\);/);
+  assert.match(currentCue, /background:\s*var\(--invert-bg\);/);
+  assert.match(currentCue, /color:\s*var\(--invert-text\);/);
   assert.match(currentCue, /padding-left:\s*1\.45rem;/);
   assert.match(
     css,
-    /\.cue-row\.is-current::before,\s*\.cue-row\[aria-current="step"\]::before\s*\{[^}]*content:\s*"✱";[^}]*color:\s*var\(--stamp\);/s
+    /\.cue-row\.is-current::before,\s*\.cue-row\[aria-current="step"\]::before\s*\{[^}]*content:\s*"▶";[^}]*color:\s*var\(--invert-text\);/s
   );
 });
 
@@ -766,7 +890,7 @@ test("replaces runtime emoji visually while retaining music track text", async (
   assert.match(cueIconsMark, /font-size:\s*[^0][^;]*;/);
 });
 
-test("keeps playing music colors intact while hovered", async () => {
+test("keeps inverted playing music controls intact while hovered", async () => {
   const css = await readFile(stylePath, "utf8");
   const playingHover = css.match(
     /\.music-button\.is-playing:hover:not\(:disabled\)\s*\{([^}]*)\}/s
@@ -779,46 +903,64 @@ test("keeps playing music colors intact while hovered", async () => {
   )?.[1];
 
   assert.ok(playingHover, "missing playing-hover state");
-  assert.match(playingHover, /background:\s*var\(--stamp\);/);
-  assert.match(playingHover, /color:\s*var\(--paper\);/);
+  assert.match(playingHover, /background:\s*var\(--invert-bg\);/);
+  assert.match(playingHover, /color:\s*var\(--invert-text\);/);
   assert.ok(playingHoverPrefix, "missing playing-hover MUS prefix state");
-  assert.match(playingHoverPrefix, /background:\s*var\(--stamp\);/);
-  assert.match(playingHoverPrefix, /color:\s*var\(--paper\);/);
+  assert.match(playingHoverPrefix, /background:\s*var\(--invert-bg\);/);
+  assert.match(playingHoverPrefix, /color:\s*var\(--invert-text\);/);
   assert.ok(playingHoverStatus, "missing playing-hover status state");
-  assert.match(playingHoverStatus, /color:\s*var\(--paper\);/);
+  assert.match(playingHoverStatus, /color:\s*var\(--invert-text\);/);
 });
 
-test("keeps the current cue stamp treatment intact while hovered", async () => {
+test("keeps the current cue row inverted while hovered", async () => {
   const css = await readFile(stylePath, "utf8");
   const currentHover = css.match(
     /\.cue-row\.is-current:hover:not\(:disabled\),\s*\.cue-row\[aria-current="step"\]:hover:not\(:disabled\)\s*\{([^}]*)\}/s
   )?.[1];
 
   assert.ok(currentHover, "missing current-cue hover override");
-  assert.match(currentHover, /border-color:\s*var\(--stamp\);/);
-  assert.match(currentHover, /background:\s*var\(--stamp-soft\);/);
-  assert.match(currentHover, /color:\s*var\(--ink\);/);
+  assert.match(currentHover, /border-color:\s*var\(--invert-bg\);/);
+  assert.match(currentHover, /background:\s*var\(--invert-bg\);/);
+  assert.match(currentHover, /color:\s*var\(--invert-text\);/);
 });
 
-test("keeps keyboard focus distinct from the cued music pulse", async () => {
+test("uses the same high-contrast keyboard focus throughout the console", async () => {
   const css = await readFile(stylePath, "utf8");
+  const focus = css.match(
+    /button:focus-visible,\s*summary:focus-visible\s*\{([^}]*)\}/s
+  )?.[1];
   const cuedFocus = css.match(
     /\.music-button\.is-cued:focus-visible\s*\{([^}]*)\}/s
   )?.[1];
 
+  assert.ok(focus, "missing global keyboard focus rule");
+  assert.match(focus, /outline:\s*3px solid #FFFFFF;/);
+  assert.match(focus, /outline-offset:\s*3px;/);
   assert.ok(cuedFocus, "missing cued-music focus override");
   assert.match(cuedFocus, /animation:\s*none;/);
-  assert.match(cuedFocus, /outline:\s*3px solid var\(--paper\);/);
+  assert.match(cuedFocus, /outline:\s*3px solid #FFFFFF;/);
   assert.match(cuedFocus, /outline-offset:\s*3px;/);
 });
 
-test("keeps small print readable and NOW visually ahead of UP NEXT", async () => {
+test("keeps NOW subtitles readable and visually ahead of UP NEXT", async () => {
   const css = await readFile(stylePath, "utf8");
   const nowPanel = css.match(/\.cue-panel--now\s*\{([^}]*)\}/s)?.[1];
   const nowHeading = css.match(
     /\.cue-panel--now \.cue-panel__header h1\s*\{([^}]*)\}/s
   )?.[1];
   const deckPanel = css.match(/\.cue-panel--deck\s*\{([^}]*)\}/s)?.[1];
+  const nowKr = css.match(
+    /(?:^|\n)\.cue-copy__kr\s*\{([^}]*)\}/s
+  )?.[1];
+  const deckKr = css.match(
+    /\.cue-panel--deck \.cue-copy__kr\s*\{([^}]*)\}/s
+  )?.[1];
+  const english = css.match(
+    /(?:^|\n)\.cue-copy__en\s*\{([^}]*)\}/s
+  )?.[1];
+  const mandarin = css.match(
+    /(?:^|\n)\.cue-copy__zh\s*\{([^}]*)\}/s
+  )?.[1];
   const copyLabel = css.match(/\.cue-copy__label\s*\{([^}]*)\}/s)?.[1];
   const currentNumber = css.match(
     /\.cue-row\.is-current \.cue-row__cn,\s*\.cue-row\[aria-current="step"\] \.cue-row__cn\s*\{([^}]*)\}/s
@@ -828,18 +970,27 @@ test("keeps small print readable and NOW visually ahead of UP NEXT", async () =>
   )?.[1];
 
   assert.ok(nowPanel, "missing NOW panel rule");
-  assert.match(nowPanel, /border-top:\s*6px solid var\(--stamp\);/);
+  assert.match(nowPanel, /border-top:\s*6px solid var\(--text\);/);
   assert.ok(nowHeading, "missing NOW heading emphasis");
-  assert.match(nowHeading, /color:\s*var\(--stamp\);/);
+  assert.match(nowHeading, /color:\s*var\(--text\);/);
   assert.ok(deckPanel, "missing UP NEXT panel rule");
-  assert.match(deckPanel, /border-top:\s*6px solid var\(--ink\);/);
-  assert.match(deckPanel, /background:\s*var\(--paper\);/);
+  assert.match(deckPanel, /border:\s*1px solid var\(--line\);/);
+  assert.match(deckPanel, /background:\s*var\(--panel\);/);
+  assert.ok(nowKr, "missing NOW Korean copy rule");
+  assert.match(nowKr, /font-size:\s*clamp\(1\.35rem,[^;]+\);/);
+  assert.match(nowKr, /line-height:\s*1\.6;/);
+  assert.ok(deckKr, "missing UP NEXT Korean copy rule");
+  assert.match(deckKr, /font-size:\s*clamp\(1rem,[^;]+1\.2rem\);/);
+  assert.ok(english, "missing English copy rule");
+  assert.match(english, /color:\s*var\(--text-dim\);/);
+  assert.ok(mandarin, "missing Mandarin copy rule");
+  assert.match(mandarin, /color:\s*var\(--text-dim\);/);
   assert.ok(copyLabel, "missing cue copy label rule");
-  assert.match(copyLabel, /color:\s*var\(--frame\);/);
+  assert.match(copyLabel, /color:\s*var\(--text-dim\);/);
   assert.ok(currentNumber, "missing current cue number contrast override");
-  assert.match(currentNumber, /color:\s*var\(--frame\);/);
+  assert.match(currentNumber, /color:\s*var\(--invert-text\);/);
   assert.ok(hoverNumber, "missing hovered cue number contrast override");
-  assert.match(hoverNumber, /color:\s*var\(--frame\);/);
+  assert.match(hoverNumber, /color:\s*var\(--text\);/);
 });
 
 test("uses readable lesson headers and keeps section numbers on one line", async () => {
@@ -856,12 +1007,12 @@ test("uses readable lesson headers and keeps section numbers on one line", async
   const heading = css.match(/\.section-heading h2\s*\{([^}]*)\}/s)?.[1];
 
   assert.ok(sceneName, "missing scene lesson title rule");
-  assert.match(sceneName, /color:\s*var\(--ink\);/);
+  assert.match(sceneName, /color:\s*var\(--text\);/);
   assert.match(sceneName, /font-weight:\s*8\d\d;/);
   assert.doesNotMatch(sceneName, /text-transform:\s*lowercase;/);
   assert.ok(sceneRange, "missing scene supporting range rule");
   assert.match(sceneRange, /margin-left:\s*auto;/);
-  assert.match(sceneRange, /color:\s*var\(--ink-soft\);/);
+  assert.match(sceneRange, /color:\s*var\(--text-dim\);/);
   assert.match(sceneRange, /font-size:\s*0\.68rem;/);
   assert.doesNotMatch(sceneRange, /order:\s*-1;/);
   assert.ok(headingLead, "missing non-shrinking section heading lead");

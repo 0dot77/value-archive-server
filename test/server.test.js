@@ -77,6 +77,12 @@ const initialMusicState = {
   ]
 };
 
+const initialSubtitleState = {
+  langs: {
+    zh: true
+  }
+};
+
 const completeHealth = {
   fps: 72,
   cvHz: 30,
@@ -352,6 +358,14 @@ function musicTrackFrom(message, trackId) {
   return message.tracks.find((track) => track.trackId === trackId);
 }
 
+function sequenceWithMusicCues(...musicCues) {
+  const sequence = structuredClone(sequenceFixture);
+  for (const [stepIndex, musicCue] of musicCues.entries()) {
+    sequence.steps[stepIndex].params.musicCue = musicCue;
+  }
+  return sequence;
+}
+
 async function expectRejectedUpgrade(url) {
   return new Promise((resolve, reject) => {
     const webSocket = new WebSocket(url);
@@ -601,11 +615,13 @@ test("serves exact REST state and validates assignment and sequence commands", a
     "devices",
     "seqState",
     "sequence",
-    "musicState"
+    "musicState",
+    "subtitleState"
   ]);
   assert.deepEqual(initial.json.devices, []);
   assert.deepEqual(initial.json.sequence, sequenceFixture);
   assert.deepEqual(initial.json.musicState, initialMusicState);
+  assert.deepEqual(initial.json.subtitleState, initialSubtitleState);
   assert.deepEqual(
     {
       ...initial.json.seqState,
@@ -625,11 +641,16 @@ test("serves exact REST state and validates assignment and sequence commands", a
   stateCopy.sequence.steps[0].title = "mutated";
   stateCopy.seqState.params.cue = "mutated";
   stateCopy.musicState.tracks[0].playing = true;
+  stateCopy.subtitleState.langs.zh = false;
   assert.equal(fixture.server.getState().sequence.steps[0].title, "Intro");
   assert.equal(fixture.server.getState().seqState.params.cue, "standby");
   assert.equal(
     fixture.server.getState().musicState.tracks[0].playing,
     false
+  );
+  assert.deepEqual(
+    fixture.server.getState().subtitleState,
+    initialSubtitleState
   );
 
   for (const body of [
@@ -761,6 +782,76 @@ test("POST /api/music returns and broadcasts state and rejects invalid commands"
   );
 });
 
+test("POST /api/subtitle returns and broadcasts state and rejects invalid commands", async (t) => {
+  const fixture = await createRunningServer(t);
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const quest = await openPeer(t, fixture.wsUrl);
+  const unwelcomed = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-rest-subtitle"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    quest.nextJson("welcome")
+  ]);
+
+  const response = await requestJson(
+    `${fixture.httpBaseUrl}/api/subtitle`,
+    {
+      method: "POST",
+      body: { lang: "zh", enabled: false }
+    }
+  );
+  assert.equal(response.response.status, 200);
+  assert.deepEqual(response.json, {
+    ok: true,
+    subtitleState: { langs: { zh: false } }
+  });
+
+  const [dashboardState, questState] = await Promise.all([
+    dashboard.nextJson("subtitleState"),
+    quest.nextJson("subtitleState")
+  ]);
+  const expectedMessage = {
+    t: "subtitleState",
+    langs: { zh: false }
+  };
+  assert.deepEqual(dashboardState, expectedMessage);
+  assert.deepEqual(questState, expectedMessage);
+  await assert.rejects(
+    unwelcomed.nextJson("subtitleState", () => true, 80),
+    /Timed out waiting for JSON message subtitleState/
+  );
+
+  for (const body of [
+    { lang: "en", enabled: true },
+    { lang: "zh", enabled: "true" },
+    {}
+  ]) {
+    const invalid = await requestJson(
+      `${fixture.httpBaseUrl}/api/subtitle`,
+      { method: "POST", body }
+    );
+    assert.equal(invalid.response.status, 400);
+    assert.equal(invalid.json.ok, false);
+    assert.equal(
+      invalid.json.error?.code,
+      "INVALID_SUBTITLE_COMMAND"
+    );
+    assert.equal(typeof invalid.json.error?.message, "string");
+  }
+  assert.deepEqual(fixture.server.getState().subtitleState, {
+    langs: { zh: false }
+  });
+  await assert.rejects(
+    dashboard.nextJson("subtitleState", () => true, 80),
+    /Timed out waiting for JSON message subtitleState/
+  );
+});
+
 test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and offline state", async (t) => {
   const fixture = await createRunningServer(t, {
     assignments: { "quest-alpha": "A" }
@@ -774,11 +865,13 @@ test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and 
     "devices",
     "seqState",
     "sequence",
-    "musicState"
+    "musicState",
+    "subtitleState"
   ]);
   assert.deepEqual(dashboardWelcome.devices, []);
   assert.deepEqual(dashboardWelcome.sequence, sequenceFixture);
   assert.deepEqual(dashboardWelcome.musicState, initialMusicState);
+  assert.deepEqual(dashboardWelcome.subtitleState, initialSubtitleState);
 
   const unwelcomed = await openPeer(t, fixture.wsUrl);
   unwelcomed.sendJson({ t: "health", fps: 999 });
@@ -796,12 +889,14 @@ test("uses separate welcomes and tracks grace, health, RTT, malformed JSON, and 
     "role",
     "serverTimeMs",
     "seqState",
-    "musicState"
+    "musicState",
+    "subtitleState"
   ]);
   assert.equal(questWelcome.role, "A");
   assert.equal(typeof questWelcome.serverTimeMs, "number");
   assert.equal(questWelcome.seqState.stepId, "intro");
   assert.deepEqual(questWelcome.musicState, initialMusicState);
+  assert.deepEqual(questWelcome.subtitleState, initialSubtitleState);
   assert.deepEqual(await quest.nextJson("previewSource"), {
     t: "previewSource",
     role: "A",
@@ -1034,7 +1129,65 @@ test("dashboard music commands broadcast play, replay, and stop state to every w
   );
 });
 
-test("stop and start reset all runtime music state", async (t) => {
+test("dashboard subtitle commands broadcast state and reject invalid payloads", async (t) => {
+  const fixture = await createRunningServer(t);
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const quest = await openPeer(t, fixture.wsUrl);
+  const unwelcomed = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-subtitle"
+  });
+  const [dashboardWelcome, questWelcome] = await Promise.all([
+    dashboard.nextJson("welcome"),
+    quest.nextJson("welcome")
+  ]);
+  assert.deepEqual(dashboardWelcome.subtitleState, initialSubtitleState);
+  assert.deepEqual(questWelcome.subtitleState, initialSubtitleState);
+
+  dashboard.sendJson({
+    t: "subtitleCommand",
+    lang: "zh",
+    enabled: false
+  });
+  const [dashboardDisabled, questDisabled] = await Promise.all([
+    dashboard.nextJson("subtitleState"),
+    quest.nextJson("subtitleState")
+  ]);
+  const disabledState = {
+    t: "subtitleState",
+    langs: { zh: false }
+  };
+  assert.deepEqual(dashboardDisabled, disabledState);
+  assert.deepEqual(questDisabled, disabledState);
+  await assert.rejects(
+    unwelcomed.nextJson("subtitleState", () => true, 80),
+    /Timed out waiting for JSON message subtitleState/
+  );
+
+  for (const command of [
+    { t: "subtitleCommand", lang: "en", enabled: true },
+    { t: "subtitleCommand", lang: "zh", enabled: 1 },
+    { t: "subtitleCommand", lang: "zh" }
+  ]) {
+    dashboard.sendJson(command);
+    const error = await dashboard.nextJson("error");
+    assert.deepEqual(Object.keys(error), ["t", "code", "message"]);
+    assert.equal(error.code, "INVALID_SUBTITLE_COMMAND");
+    assert.equal(typeof error.message, "string");
+  }
+  assert.deepEqual(fixture.server.getState().subtitleState, {
+    langs: { zh: false }
+  });
+  await assert.rejects(
+    dashboard.nextJson("subtitleState", () => true, 80),
+    /Timed out waiting for JSON message subtitleState/
+  );
+});
+
+test("stop and start reset all runtime music and subtitle state", async (t) => {
   let nowMs = 7_000;
   const fixture = await createRunningServer(t, {}, {
     now: () => nowMs
@@ -1057,10 +1210,24 @@ test("stop and start reset all runtime music state", async (t) => {
     7_000
   );
 
+  dashboard.sendJson({
+    t: "subtitleCommand",
+    lang: "zh",
+    enabled: false
+  });
+  assert.deepEqual(await dashboard.nextJson("subtitleState"), {
+    t: "subtitleState",
+    langs: { zh: false }
+  });
+
   await fixture.server.stop();
   nowMs = 8_000;
   await fixture.server.start();
   assert.deepEqual(fixture.server.getState().musicState, initialMusicState);
+  assert.deepEqual(
+    fixture.server.getState().subtitleState,
+    initialSubtitleState
+  );
 });
 
 test("assigned Quests relay valid voFinished events to dashboards only", async (t) => {
@@ -1570,6 +1737,142 @@ test("allows only dashboards to drive sequence state and broadcasts REST and WS 
   ]);
   assert.equal(dashboardStop.stepIndex, 1);
   assert.equal(questStop.stepIndex, 1);
+});
+
+test("entering a sequence step with an in music cue starts and broadcasts the track", async (t) => {
+  const fixture = await createRunningServer(
+    t,
+    {
+      sequence: sequenceWithMusicCues({
+        trackId: "amb_1_2",
+        action: "in"
+      })
+    },
+    { now: () => 12_000 }
+  );
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await dashboard.nextJson("welcome");
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  const [seqState, musicState] = await Promise.all([
+    dashboard.nextJson("seqState", (message) => message.running === true),
+    dashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+    )
+  ]);
+
+  assert.equal(seqState.stepId, "intro");
+  assert.deepEqual(musicTrackFrom(musicState, "amb_1_2"), {
+    trackId: "amb_1_2",
+    label: "엠비언스 (amb_1.2)",
+    file: "amb_1.2.mp3",
+    playing: true,
+    startedAtServerMs: 12_000
+  });
+});
+
+test("entering a sequence step with an out music cue stops and broadcasts the track", async (t) => {
+  let nowMs = 13_000;
+  const fixture = await createRunningServer(
+    t,
+    {
+      sequence: sequenceWithMusicCues(
+        { trackId: "amb_1_2", action: "in" },
+        { trackId: "amb_1_2", action: "out" }
+      )
+    },
+    { now: () => nowMs }
+  );
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await dashboard.nextJson("welcome");
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  await Promise.all([
+    dashboard.nextJson("seqState", (message) => message.running === true),
+    dashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+    )
+  ]);
+
+  nowMs = 14_000;
+  dashboard.sendJson({ t: "seqCommand", action: "next" });
+  const [seqState, musicState] = await Promise.all([
+    dashboard.nextJson("seqState", (message) => message.stepIndex === 1),
+    dashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === false
+    )
+  ]);
+
+  assert.equal(seqState.stepId, "approach");
+  assert.deepEqual(musicTrackFrom(musicState, "amb_1_2"), {
+    trackId: "amb_1_2",
+    label: "엠비언스 (amb_1.2)",
+    file: "amb_1.2.mp3",
+    playing: false,
+    startedAtServerMs: null
+  });
+});
+
+test("stopping the sequence stops all playing music tracks", async (t) => {
+  const fixture = await createRunningServer(t);
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await dashboard.nextJson("welcome");
+
+  for (const trackId of ["amb_1_2", "mus_2_1"]) {
+    dashboard.sendJson({ t: "musicCommand", trackId, action: "play" });
+    await dashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, trackId)?.playing === true
+    );
+  }
+
+  dashboard.sendJson({ t: "seqCommand", action: "stop" });
+  const [seqState, musicState] = await Promise.all([
+    dashboard.nextJson("seqState", (message) => message.running === false),
+    dashboard.nextJson(
+      "musicState",
+      (message) => message.tracks.every((track) => !track.playing)
+    )
+  ]);
+
+  assert.equal(seqState.running, false);
+  assert.ok(musicState.tracks.every((track) => !track.playing));
+  assert.ok(
+    musicState.tracks.every((track) => track.startedAtServerMs === null)
+  );
+});
+
+test("an unknown music cue track warns without blocking the sequence transition", async (t) => {
+  const fixture = await createRunningServer(t, {
+    sequence: sequenceWithMusicCues({
+      trackId: "missing-track",
+      action: "in"
+    })
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await dashboard.nextJson("welcome");
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  const seqState = await dashboard.nextJson(
+    "seqState",
+    (message) => message.running === true
+  );
+
+  assert.equal(seqState.stepId, "intro");
+  assert.ok(
+    fixture.logs.some(
+      ({ level, message }) =>
+        level === "warn" &&
+        message.includes('trackId="missing-track"')
+    )
+  );
 });
 
 test("rejects WebSocket upgrades outside the exact /ws pathname", async (t) => {

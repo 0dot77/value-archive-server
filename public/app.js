@@ -6,14 +6,19 @@ const DEMO_FALLBACK_SEQUENCE = {
   sequenceId: "value-archive-dashboard-demo",
   music: [
     {
-      trackId: "amb_1_2",
-      label: "엠비언스 (amb_1.2)",
-      file: "amb_1.2.mp3"
+      trackId: "father_1",
+      label: "father_1 · 엠비언스",
+      file: "father_1.mp3"
     },
     {
-      trackId: "mus_2_1",
-      label: "흥미로운 음악 (mus_2.1)",
-      file: "mus_2.1.mp3"
+      trackId: "father_2",
+      label: "father_2 · 흥미로운 음악",
+      file: "father_2.mp3"
+    },
+    {
+      trackId: "father_3",
+      label: "father_3",
+      file: "father_3.mp3"
     },
     {
       trackId: "mus_reunion",
@@ -32,6 +37,7 @@ const DEMO_FALLBACK_SEQUENCE = {
         speaker: "우경",
         textKr: "보세요. 지금 당신 앞에 오래된 명함집이 있습니다.",
         textEn: "Look. In front of you is an old business card holder.",
+        textZh: "看。您面前有一个旧名片夹。",
         lines: [
           "보세요. 지금 당신 앞에",
           "오래된 명함집이 있습니다."
@@ -55,6 +61,7 @@ const DEMO_FALLBACK_SEQUENCE = {
         speaker: "우경",
         textKr: "천천히 첫 장을 펼쳐 보세요.",
         textEn: "Slowly open the first page.",
+        textZh: "请慢慢翻开第一页。",
         lines: ["천천히 첫 장을", "펼쳐 보세요."],
         xr: "",
         ui: "페이지 가이드 표시",
@@ -62,7 +69,7 @@ const DEMO_FALLBACK_SEQUENCE = {
         voDurationMs: null,
         sfx: "",
         musicCue: {
-          trackId: "amb_1_2",
+          trackId: "father_1",
           action: "in",
           note: "천천히 시작"
         },
@@ -79,6 +86,7 @@ const DEMO_FALLBACK_SEQUENCE = {
         speaker: "아빠",
         textKr: "당신이 쥔 명함의 감촉을 기억해 주세요.",
         textEn: "Remember the feel of the card in your hand.",
+        textZh: "请记住手中名片的触感。",
         lines: [
           "당신이 쥔 명함의 감촉을",
           "기억해 주세요."
@@ -89,7 +97,7 @@ const DEMO_FALLBACK_SEQUENCE = {
         voDurationMs: 9_000,
         sfx: "sfx_card_pickup",
         musicCue: {
-          trackId: "mus_2_1",
+          trackId: "father_2",
           action: "in",
           note: ""
         },
@@ -106,6 +114,7 @@ const DEMO_FALLBACK_SEQUENCE = {
         speaker: "아빠",
         textKr: "이제 서로를 향해 한 걸음 다가가세요.",
         textEn: "Now take one step toward each other.",
+        textZh: "现在，请彼此靠近一步。",
         lines: ["이제 서로를 향해", "한 걸음 다가가세요."],
         xr: "상대 방향 포인터",
         ui: "",
@@ -113,7 +122,7 @@ const DEMO_FALLBACK_SEQUENCE = {
         voDurationMs: null,
         sfx: "sfx_step",
         musicCue: {
-          trackId: "amb_1_2",
+          trackId: "father_1",
           action: "out",
           note: ""
         },
@@ -234,6 +243,7 @@ export function normalizeCueParams(params) {
     speaker: stringValue(source.speaker),
     textKr: explicitTextKr || lines.join("\n"),
     textEn: stringValue(source.textEn),
+    textZh: stringValue(source.textZh),
     lines,
     xr: stringValue(source.xr),
     ui: stringValue(source.ui),
@@ -329,6 +339,14 @@ export function makeMusicToggleMessage(track) {
     t: "musicCommand",
     trackId,
     action: track.playing === true ? "stop" : "play"
+  };
+}
+
+export function makeSubtitleToggleMessage(enabled) {
+  return {
+    t: "subtitleCommand",
+    lang: "zh",
+    enabled: enabled !== true
   };
 }
 
@@ -485,6 +503,7 @@ function startDashboard() {
     sequence: null,
     seqState: null,
     musicState: { tracks: [] },
+    subtitleState: { langs: { zh: true } },
     serverClockOffsetMs: 0,
     voFinishedRoles: new Set(),
     previews: {
@@ -608,6 +627,10 @@ function startDashboard() {
       : sequenceStepsArray().length > 0
         ? String(sequenceStepsArray().length)
         : "—";
+  }
+
+  function subtitleEnabled() {
+    return state.subtitleState?.langs?.zh !== false;
   }
 
   function canSequenceControl() {
@@ -996,6 +1019,10 @@ function startDashboard() {
     setCueField(panel, "speaker", params.speaker);
     setCueField(panel, "text-kr", params.textKr);
     setCueField(panel, "text-en", params.textEn);
+    setCueField(panel, "text-zh", params.textZh);
+    panel
+      .querySelector('[data-cue-field="text-zh"]')
+      .classList.toggle("is-disabled", !subtitleEnabled());
     setCueField(panel, "xr", params.xr);
     setCueField(panel, "ui", params.ui);
     setCueField(panel, "vo", params.vo);
@@ -1258,6 +1285,14 @@ function startDashboard() {
       !controllable ||
       stepIndex === null ||
       stepIndex >= steps.length - 1;
+    const subtitleToggle = sequencePanel.querySelector(
+      '[data-action="toggle-subtitle"][data-lang="zh"]'
+    );
+    subtitleToggle.disabled = !controllable;
+    subtitleToggle.setAttribute(
+      "aria-pressed",
+      String(subtitleEnabled())
+    );
 
     renderCuePanel(cuePanels.now, step, stepIndex ?? 0, "now");
     renderCuePanel(
@@ -1335,6 +1370,11 @@ function startDashboard() {
           message.musicState && typeof message.musicState === "object"
             ? message.musicState
             : { tracks: [] };
+        state.subtitleState =
+          message.subtitleState &&
+          typeof message.subtitleState === "object"
+            ? message.subtitleState
+            : { langs: { zh: true } };
         applyDevices(message.devices);
         renderSequence();
         return;
@@ -1348,6 +1388,10 @@ function startDashboard() {
       case "musicState":
         state.musicState = message;
         renderMusicChannels();
+        return;
+      case "subtitleState":
+        state.subtitleState = message;
+        renderSequence();
         return;
       case "voStatus":
         if (
@@ -1498,6 +1542,7 @@ function startDashboard() {
     let demoSequence = null;
     let demoSeqState = null;
     let demoTracks = [];
+    let demoSubtitleState = { langs: { zh: true } };
 
     function makeDemoDevices() {
       const nowMs = Date.now();
@@ -1554,6 +1599,7 @@ function startDashboard() {
       }
       demoSequence = sequence;
       demoSeqState = makeSeqState(0, false, Date.now());
+      demoSubtitleState = { langs: { zh: true } };
       demoTracks = (Array.isArray(sequence.music)
         ? sequence.music
         : []
@@ -1570,7 +1616,8 @@ function startDashboard() {
         devices: makeDemoDevices(),
         sequence: demoSequence,
         seqState: demoSeqState,
-        musicState: { tracks: demoTracks }
+        musicState: { tracks: demoTracks },
+        subtitleState: demoSubtitleState
       });
     }
 
@@ -1643,6 +1690,23 @@ function startDashboard() {
       return true;
     }
 
+    function applySubtitleCommand(message) {
+      if (
+        message.lang !== "zh" ||
+        typeof message.enabled !== "boolean"
+      ) {
+        return false;
+      }
+      demoSubtitleState = {
+        langs: { zh: message.enabled }
+      };
+      handleJsonMessage({
+        t: "subtitleState",
+        ...demoSubtitleState
+      });
+      return true;
+    }
+
     function send(message) {
       if (disposed || !message || typeof message !== "object") {
         return false;
@@ -1652,6 +1716,9 @@ function startDashboard() {
       }
       if (message.t === "musicCommand") {
         return applyMusicCommand(message);
+      }
+      if (message.t === "subtitleCommand") {
+        return applySubtitleCommand(message);
       }
       return false;
     }
@@ -1758,6 +1825,10 @@ function startDashboard() {
       if (message) {
         sendJson(message);
       }
+      return;
+    }
+    if (button.dataset.action === "toggle-subtitle") {
+      sendJson(makeSubtitleToggleMessage(subtitleEnabled()));
       return;
     }
     if (button.dataset.seqAction) {

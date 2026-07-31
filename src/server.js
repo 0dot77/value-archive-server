@@ -423,6 +423,7 @@ export function createValueArchiveServer(options = {}) {
   let sequence;
   let sequenceController;
   let musicTracks;
+  let subtitleState;
   let httpServer;
   let webSocketServer;
   let udpSocket;
@@ -578,12 +579,25 @@ export function createValueArchiveServer(options = {}) {
     };
   }
 
+  function buildSubtitleState() {
+    if (!subtitleState) {
+      return null;
+    }
+
+    return {
+      langs: {
+        zh: subtitleState.zh
+      }
+    };
+  }
+
   function getState() {
     return {
       devices: buildDeviceList(),
       seqState: sequenceController ? sequenceController.getState() : null,
       sequence: sequence ? clone(sequence) : null,
-      musicState: buildMusicState()
+      musicState: buildMusicState(),
+      subtitleState: buildSubtitleState()
     };
   }
 
@@ -615,6 +629,11 @@ export function createValueArchiveServer(options = {}) {
 
   function broadcastMusicState(musicState) {
     const message = { t: "musicState", ...musicState };
+    forEachWelcomedClient((socket) => safeSendJson(socket, message));
+  }
+
+  function broadcastSubtitleState(nextSubtitleState) {
+    const message = { t: "subtitleState", ...nextSubtitleState };
     forEachWelcomedClient((socket) => safeSendJson(socket, message));
   }
 
@@ -691,17 +710,6 @@ export function createValueArchiveServer(options = {}) {
     return operation;
   }
 
-  function runSequenceCommand(action, stepIndex) {
-    const state = sequenceController.command(action, stepIndex);
-    emitLog(
-      "info",
-      `Sequence action=${JSON.stringify(action)} running=${state.running} ` +
-        `stepIndex=${state.stepIndex} stepId=${JSON.stringify(state.stepId)}`
-    );
-    broadcastSequenceState(state);
-    return state;
-  }
-
   function runMusicCommand(trackId, action) {
     if (action !== "play" && action !== "stop") {
       throw new TypeError('action must be either "play" or "stop"');
@@ -733,6 +741,85 @@ export function createValueArchiveServer(options = {}) {
     const musicState = buildMusicState();
     broadcastMusicState(musicState);
     return musicState;
+  }
+
+  function runStepMusicCue(musicCue) {
+    if (!isObject(musicCue)) {
+      return;
+    }
+
+    const action =
+      musicCue.action === "in"
+        ? "play"
+        : musicCue.action === "out" || musicCue.action === "fadeDown"
+          ? "stop"
+          : null;
+    if (!action) {
+      emitLog(
+        "warn",
+        `Music cue ignored trackId=${JSON.stringify(musicCue.trackId)} ` +
+          `action=${JSON.stringify(musicCue.action)}: unsupported action`
+      );
+      return;
+    }
+
+    const trackExists = musicTracks?.some(
+      (track) => track.trackId === musicCue.trackId
+    );
+    if (!trackExists) {
+      emitLog(
+        "warn",
+        `Music cue ignored trackId=${JSON.stringify(musicCue.trackId)} ` +
+          `action=${JSON.stringify(musicCue.action)}: unknown track`
+      );
+      return;
+    }
+
+    runMusicCommand(musicCue.trackId, action);
+  }
+
+  function stopAllMusic() {
+    for (const track of musicTracks ?? []) {
+      if (track.playing) {
+        runMusicCommand(track.trackId, "stop");
+      }
+    }
+  }
+
+  function runSequenceCommand(action, stepIndex) {
+    const state = sequenceController.command(action, stepIndex);
+    emitLog(
+      "info",
+      `Sequence action=${JSON.stringify(action)} running=${state.running} ` +
+        `stepIndex=${state.stepIndex} stepId=${JSON.stringify(state.stepId)}`
+    );
+    broadcastSequenceState(state);
+
+    if (action === "stop") {
+      stopAllMusic();
+    } else {
+      runStepMusicCue(state.params.musicCue);
+    }
+
+    return state;
+  }
+
+  function runSubtitleCommand(lang, enabled) {
+    if (lang !== "zh") {
+      throw new TypeError('lang must be "zh"');
+    }
+    if (typeof enabled !== "boolean") {
+      throw new TypeError("enabled must be a boolean");
+    }
+
+    subtitleState.zh = enabled;
+    emitLog(
+      "info",
+      `Subtitle lang=${JSON.stringify(lang)} enabled=${enabled}`
+    );
+    const nextSubtitleState = buildSubtitleState();
+    broadcastSubtitleState(nextSubtitleState);
+    return nextSubtitleState;
   }
 
   function sendSocketError(socket, code, message) {
@@ -790,7 +877,8 @@ export function createValueArchiveServer(options = {}) {
       role,
       serverTimeMs: timestamp,
       seqState: sequenceController.getState(),
-      musicState: buildMusicState()
+      musicState: buildMusicState(),
+      subtitleState: buildSubtitleState()
     });
     if (role) {
       safeSendJson(socket, {
@@ -815,7 +903,8 @@ export function createValueArchiveServer(options = {}) {
       devices: state.devices,
       seqState: state.seqState,
       sequence: state.sequence,
-      musicState: state.musicState
+      musicState: state.musicState,
+      subtitleState: state.subtitleState
     });
   }
 
@@ -921,6 +1010,10 @@ export function createValueArchiveServer(options = {}) {
           runMusicCommand(message.trackId, message.action);
           return;
 
+        case "subtitleCommand":
+          runSubtitleCommand(message.lang, message.enabled);
+          return;
+
         case "requestFrame": {
           const role = requireRole(message.role);
           await assignmentOperationChain;
@@ -985,7 +1078,9 @@ export function createValueArchiveServer(options = {}) {
             ? "INVALID_SEQUENCE_COMMAND"
             : message.t === "musicCommand"
               ? "INVALID_MUSIC_COMMAND"
-              : "INVALID_CONTROL";
+              : message.t === "subtitleCommand"
+                ? "INVALID_SUBTITLE_COMMAND"
+                : "INVALID_CONTROL";
       sendSocketError(socket, code, error.message);
     }
   }
@@ -1180,6 +1275,30 @@ export function createValueArchiveServer(options = {}) {
     }
   });
 
+  app.post("/api/subtitle", (request, response) => {
+    try {
+      if (!isObject(request.body)) {
+        throw new TypeError("request body must be a JSON object");
+      }
+      const nextSubtitleState = runSubtitleCommand(
+        request.body.lang,
+        request.body.enabled
+      );
+      response.json({ ok: true, subtitleState: nextSubtitleState });
+    } catch (error) {
+      const isValidationError = error instanceof TypeError;
+      response.status(isValidationError ? 400 : 500).json({
+        ok: false,
+        error: {
+          code: isValidationError
+            ? "INVALID_SUBTITLE_COMMAND"
+            : "SUBTITLE_COMMAND_FAILED",
+          message: error.message
+        }
+      });
+    }
+  });
+
   app.use(express.static(publicDirectory));
 
   app.use((error, _request, response, next) => {
@@ -1242,6 +1361,7 @@ export function createValueArchiveServer(options = {}) {
         playing: false,
         startedAtServerMs: null
       }));
+      subtitleState = { zh: true };
       devices.clear();
       advertiseIp = selectStartupAdvertiseIp();
 
