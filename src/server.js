@@ -19,6 +19,7 @@ const DISCOVERY_REQUEST = "VA_DISCOVER?";
 const VALID_ROLES = new Set(["A", "B"]);
 const VALID_PREVIEW_SOURCES = new Set(["eye", "pca"]);
 const VALID_SUBTITLE_LANGS = new Set(["kr", "en", "zh"]);
+const DEFAULT_SUBTITLE_LANG = "en";
 const CLIENT_CONTEXT = Symbol("valueArchiveClientContext");
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -442,6 +443,8 @@ export function createValueArchiveServer(options = {}) {
   let startPromise;
   let stopPromise;
   let assignmentOperationChain = Promise.resolve();
+  let pendingVoEndMusicCue;
+  let pendingDelayedMusicCue;
 
   function emitLog(level, message) {
     const text = String(message);
@@ -582,7 +585,8 @@ export function createValueArchiveServer(options = {}) {
         label: track.label,
         file: track.file,
         playing: track.playing,
-        startedAtServerMs: track.startedAtServerMs
+        startedAtServerMs: track.startedAtServerMs,
+        fadeOutSeconds: track.fadeOutSeconds
       }))
     };
   }
@@ -716,7 +720,7 @@ export function createValueArchiveServer(options = {}) {
     return operation;
   }
 
-  function runMusicCommand(trackId, action) {
+  function runMusicCommand(trackId, action, fadeSeconds = 0) {
     if (action !== "play" && action !== "stop") {
       throw new TypeError('action must be either "play" or "stop"');
     }
@@ -729,6 +733,7 @@ export function createValueArchiveServer(options = {}) {
     }
 
     if (action === "play") {
+      track.fadeOutSeconds = 0;
       if (!track.playing) {
         const startedAtServerMs = readNow();
         track.playing = true;
@@ -737,6 +742,10 @@ export function createValueArchiveServer(options = {}) {
     } else {
       track.playing = false;
       track.startedAtServerMs = null;
+      track.fadeOutSeconds =
+        typeof fadeSeconds === "number" && Number.isFinite(fadeSeconds)
+          ? fadeSeconds
+          : 0;
     }
 
     emitLog(
@@ -781,7 +790,82 @@ export function createValueArchiveServer(options = {}) {
       return;
     }
 
-    runMusicCommand(musicCue.trackId, action);
+    runMusicCommand(musicCue.trackId, action, musicCue.fadeSeconds);
+  }
+
+  function settlePendingStepMusicCues(execute) {
+    const voEndCue = pendingVoEndMusicCue;
+    const delayedCue = pendingDelayedMusicCue;
+    pendingVoEndMusicCue = undefined;
+    pendingDelayedMusicCue = undefined;
+
+    if (delayedCue) {
+      clearTimeout(delayedCue.timer);
+    }
+    if (!execute) {
+      return;
+    }
+    if (voEndCue) {
+      runStepMusicCue(voEndCue.musicCue);
+    }
+    if (delayedCue) {
+      runStepMusicCue(delayedCue.musicCue);
+    }
+  }
+
+  function processStepMusicCue(stepId, musicCue) {
+    if (!isObject(musicCue)) {
+      return;
+    }
+
+    if (musicCue.timing === "voEnd") {
+      pendingVoEndMusicCue = { stepId, musicCue };
+      return;
+    }
+
+    if (
+      typeof musicCue.delayMs === "number" &&
+      Number.isFinite(musicCue.delayMs) &&
+      musicCue.delayMs > 0
+    ) {
+      const pendingCue = {
+        stepId,
+        musicCue,
+        timer: undefined
+      };
+      pendingCue.timer = setTimeout(() => {
+        if (pendingDelayedMusicCue !== pendingCue) {
+          return;
+        }
+        pendingDelayedMusicCue = undefined;
+
+        const state = sequenceController.getState();
+        if (!state.running || state.stepId !== pendingCue.stepId) {
+          return;
+        }
+        runStepMusicCue(pendingCue.musicCue);
+      }, musicCue.delayMs);
+      pendingCue.timer.unref?.();
+      pendingDelayedMusicCue = pendingCue;
+      return;
+    }
+
+    runStepMusicCue(musicCue);
+  }
+
+  function runPendingVoEndMusicCue(stepId) {
+    const pendingCue = pendingVoEndMusicCue;
+    if (!pendingCue || pendingCue.stepId !== stepId) {
+      return;
+    }
+
+    const state = sequenceController.getState();
+    if (!state.running || state.stepId !== pendingCue.stepId) {
+      return;
+    }
+
+    pendingVoEndMusicCue = undefined;
+    runStepMusicCue(pendingCue.musicCue);
   }
 
   function stopAllMusic() {
@@ -800,12 +884,19 @@ export function createValueArchiveServer(options = {}) {
         `stepIndex=${state.stepIndex} stepId=${JSON.stringify(state.stepId)}`
     );
 
+    if (action === "start" || action === "next" || action === "goto") {
+      settlePendingStepMusicCues(true);
+    } else if (action === "stop" || action === "reset") {
+      settlePendingStepMusicCues(false);
+    }
+
     if (action === "reset") {
       for (const track of musicTracks ?? []) {
         track.playing = false;
         track.startedAtServerMs = null;
+        track.fadeOutSeconds = 0;
       }
-      subtitleState.lang = "kr";
+      subtitleState.lang = DEFAULT_SUBTITLE_LANG;
       const musicState = buildMusicState();
       const nextSubtitleState = buildSubtitleState();
       broadcastSequenceState(state);
@@ -819,7 +910,7 @@ export function createValueArchiveServer(options = {}) {
     if (action === "stop") {
       stopAllMusic();
     } else {
-      runStepMusicCue(state.params.musicCue);
+      processStepMusicCue(state.stepId, state.params.musicCue);
     }
 
     return state;
@@ -962,6 +1053,8 @@ export function createValueArchiveServer(options = {}) {
       ) {
         return;
       }
+
+      runPendingVoEndMusicCue(message.stepId);
 
       const role = registry.getRole(socket[CLIENT_CONTEXT].deviceId);
       if (role === null) {
@@ -1371,9 +1464,10 @@ export function createValueArchiveServer(options = {}) {
         label: track.label,
         file: track.file,
         playing: false,
-        startedAtServerMs: null
+        startedAtServerMs: null,
+        fadeOutSeconds: 0
       }));
-      subtitleState = { lang: "kr" };
+      subtitleState = { lang: DEFAULT_SUBTITLE_LANG };
       devices.clear();
       advertiseIp = selectStartupAdvertiseIp();
 
@@ -1546,6 +1640,7 @@ export function createValueArchiveServer(options = {}) {
 
       clearInterval(pingInterval);
       clearInterval(deviceUpdateInterval);
+      settlePendingStepMusicCues(false);
       pingInterval = undefined;
       deviceUpdateInterval = undefined;
       running = false;

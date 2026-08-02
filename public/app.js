@@ -1,6 +1,7 @@
 const ROLES = ["A", "B"];
 const SUBTITLE_LANGS = new Set(["kr", "en", "zh"]);
 const SELECTABLE_SUBTITLE_LANGS = new Set(["en", "zh"]);
+const DEFAULT_SUBTITLE_LANG = "en";
 const RESET_CONFIRM_MESSAGE = "공연을 시작 전 상태로 리셋할까요? 큐가 처음으로 돌아가고 음악이 모두 정지됩니다.";
 const EDITABLE_TAG_NAMES = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 const SPACE_INTERACTIVE_TAG_NAMES = new Set(["A", "BUTTON", "SUMMARY"]);
@@ -508,7 +509,7 @@ function startDashboard() {
     sequence: null,
     seqState: null,
     musicState: { tracks: [] },
-    subtitleState: { lang: "kr" },
+    subtitleState: { lang: DEFAULT_SUBTITLE_LANG },
     serverClockOffsetMs: 0,
     voFinishedRoles: new Set(),
     previews: {
@@ -637,7 +638,7 @@ function startDashboard() {
   function subtitleLanguage() {
     return SUBTITLE_LANGS.has(state.subtitleState?.lang)
       ? state.subtitleState.lang
-      : "kr";
+      : DEFAULT_SUBTITLE_LANG;
   }
 
   function canSequenceControl() {
@@ -1391,7 +1392,7 @@ function startDashboard() {
           message.subtitleState &&
           typeof message.subtitleState === "object"
             ? message.subtitleState
-            : { lang: "kr" };
+            : { lang: DEFAULT_SUBTITLE_LANG };
         applyDevices(message.devices);
         renderSequence();
         return;
@@ -1559,7 +1560,7 @@ function startDashboard() {
     let demoSequence = null;
     let demoSeqState = null;
     let demoTracks = [];
-    let demoSubtitleState = { lang: "kr" };
+    let demoSubtitleState = { lang: DEFAULT_SUBTITLE_LANG };
 
     function makeDemoDevices() {
       const nowMs = Date.now();
@@ -1616,7 +1617,7 @@ function startDashboard() {
       }
       demoSequence = sequence;
       demoSeqState = makeSeqState(0, false, Date.now());
-      demoSubtitleState = { lang: "kr" };
+      demoSubtitleState = { lang: DEFAULT_SUBTITLE_LANG };
       demoTracks = (Array.isArray(sequence.music)
         ? sequence.music
         : []
@@ -1697,7 +1698,7 @@ function startDashboard() {
           track.playing = false;
           track.startedAtServerMs = null;
         }
-        demoSubtitleState = { lang: "kr" };
+        demoSubtitleState = { lang: DEFAULT_SUBTITLE_LANG };
         handleJsonMessage({
           t: "musicState",
           tracks: demoTracks.map((track) => ({ ...track }))

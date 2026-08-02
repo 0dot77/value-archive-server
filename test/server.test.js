@@ -59,27 +59,30 @@ const initialMusicState = {
       label: "엠비언스 (amb_1.2)",
       file: "amb_1.2.mp3",
       playing: false,
-      startedAtServerMs: null
+      startedAtServerMs: null,
+      fadeOutSeconds: 0
     },
     {
       trackId: "mus_2_1",
       label: "흥미로운 음악 (mus_2.1)",
       file: "mus_2.1.mp3",
       playing: false,
-      startedAtServerMs: null
+      startedAtServerMs: null,
+      fadeOutSeconds: 0
     },
     {
       trackId: "mus_reunion",
       label: "추억속의 재회",
       file: "mus_추억속의재회.mp3",
       playing: false,
-      startedAtServerMs: null
+      startedAtServerMs: null,
+      fadeOutSeconds: 0
     }
   ]
 };
 
 const initialSubtitleState = {
-  lang: "kr"
+  lang: "en"
 };
 
 const completeHealth = {
@@ -772,21 +775,24 @@ test("POST /api/music returns and broadcasts state and rejects invalid commands"
         label: "엠비언스 (amb_1.2)",
         file: "amb_1.2.mp3",
         playing: false,
-        startedAtServerMs: null
+        startedAtServerMs: null,
+        fadeOutSeconds: 0
       },
       {
         trackId: "mus_2_1",
         label: "흥미로운 음악 (mus_2.1)",
         file: "mus_2.1.mp3",
         playing: true,
-        startedAtServerMs: 5_000
+        startedAtServerMs: 5_000,
+        fadeOutSeconds: 0
       },
       {
         trackId: "mus_reunion",
         label: "추억속의 재회",
         file: "mus_추억속의재회.mp3",
         playing: false,
-        startedAtServerMs: null
+        startedAtServerMs: null,
+        fadeOutSeconds: 0
       }
     ]
   };
@@ -1092,21 +1098,24 @@ test("dashboard music commands broadcast play, replay, and stop state to every w
         label: "엠비언스 (amb_1.2)",
         file: "amb_1.2.mp3",
         playing: true,
-        startedAtServerMs: 1_000
+        startedAtServerMs: 1_000,
+        fadeOutSeconds: 0
       },
       {
         trackId: "mus_2_1",
         label: "흥미로운 음악 (mus_2.1)",
         file: "mus_2.1.mp3",
         playing: false,
-        startedAtServerMs: null
+        startedAtServerMs: null,
+        fadeOutSeconds: 0
       },
       {
         trackId: "mus_reunion",
         label: "추억속의 재회",
         file: "mus_추억속의재회.mp3",
         playing: false,
-        startedAtServerMs: null
+        startedAtServerMs: null,
+        fadeOutSeconds: 0
       }
     ]
   };
@@ -1865,8 +1874,8 @@ test("dashboard reset restores show state and broadcasts sequence, music, and su
       )
     );
   }
-  assert.deepEqual(dashboardSubtitle, { t: "subtitleState", lang: "kr" });
-  assert.deepEqual(questSubtitle, { t: "subtitleState", lang: "kr" });
+  assert.deepEqual(dashboardSubtitle, { t: "subtitleState", lang: "en" });
+  assert.deepEqual(questSubtitle, { t: "subtitleState", lang: "en" });
   assert.deepEqual(fixture.server.getState().seqState, {
     sequenceId: "performance-v1",
     running: false,
@@ -1978,7 +1987,8 @@ test("entering a sequence step with an in music cue starts and broadcasts the tr
     label: "엠비언스 (amb_1.2)",
     file: "amb_1.2.mp3",
     playing: true,
-    startedAtServerMs: 12_000
+    startedAtServerMs: 12_000,
+    fadeOutSeconds: 0
   });
 });
 
@@ -2023,7 +2033,8 @@ test("entering a sequence step with an out music cue stops and broadcasts the tr
     label: "엠비언스 (amb_1.2)",
     file: "amb_1.2.mp3",
     playing: false,
-    startedAtServerMs: null
+    startedAtServerMs: null,
+    fadeOutSeconds: 0
   });
 });
 
@@ -2082,6 +2093,450 @@ test("an unknown music cue track warns without blocking the sequence transition"
         message.includes('trackId="missing-track"')
     )
   );
+});
+
+test("voEnd music cues wait for matching voFinished from a roleless Quest", async (t) => {
+  const fixture = await createRunningServer(
+    t,
+    {
+      sequence: sequenceWithMusicCues({
+        trackId: "amb_1_2",
+        action: "in",
+        timing: "voEnd"
+      })
+    },
+    { now: () => 15_000 }
+  );
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const quest = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-roleless-vo"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    quest.nextJson("welcome")
+  ]);
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  await dashboard.nextJson(
+    "seqState",
+    (message) => message.running === true
+  );
+  await assert.rejects(
+    dashboard.nextJson("musicState", () => true, 80),
+    /Timed out waiting for JSON message musicState/
+  );
+  assert.equal(
+    musicTrackFrom(fixture.server.getState().musicState, "amb_1_2").playing,
+    false
+  );
+
+  quest.sendJson({ t: "voFinished", stepId: "intro" });
+  const musicState = await dashboard.nextJson(
+    "musicState",
+    (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+  );
+  assert.deepEqual(musicTrackFrom(musicState, "amb_1_2"), {
+    trackId: "amb_1_2",
+    label: "엠비언스 (amb_1.2)",
+    file: "amb_1.2.mp3",
+    playing: true,
+    startedAtServerMs: 15_000,
+    fadeOutSeconds: 0
+  });
+  await assert.rejects(
+    dashboard.nextJson("voStatus", () => true, 80),
+    /Timed out waiting for JSON message voStatus/
+  );
+});
+
+test("a second Quest cannot execute the same pending voEnd cue twice", async (t) => {
+  const fixture = await createRunningServer(t, {
+    assignments: { "quest-vo-a": "A", "quest-vo-b": "B" },
+    sequence: sequenceWithMusicCues({
+      trackId: "amb_1_2",
+      action: "in",
+      timing: "voEnd"
+    })
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const questA = await openPeer(t, fixture.wsUrl);
+  const questB = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  questA.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-vo-a"
+  });
+  questB.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-vo-b"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    questA.nextJson("welcome"),
+    questB.nextJson("welcome")
+  ]);
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  await dashboard.nextJson(
+    "seqState",
+    (message) => message.running === true
+  );
+  await assert.rejects(
+    dashboard.nextJson("musicState", () => true, 40),
+    /Timed out waiting for JSON message musicState/
+  );
+
+  questA.sendJson({ t: "voFinished", stepId: "intro" });
+  await Promise.all([
+    dashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+    ),
+    dashboard.nextJson("voStatus", (message) => message.role === "A")
+  ]);
+
+  questB.sendJson({ t: "voFinished", stepId: "intro" });
+  await dashboard.nextJson("voStatus", (message) => message.role === "B");
+  await assert.rejects(
+    dashboard.nextJson("musicState", () => true, 80),
+    /Timed out waiting for JSON message musicState/
+  );
+});
+
+test("stale voFinished leaves the current step's pending voEnd cue untouched", async (t) => {
+  const fixture = await createRunningServer(t, {
+    sequence: sequenceWithMusicCues(null, {
+      trackId: "amb_1_2",
+      action: "in",
+      timing: "voEnd"
+    })
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  const quest = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  quest.sendJson({
+    t: "hello",
+    clientType: "quest",
+    deviceId: "quest-stale-vo"
+  });
+  await Promise.all([
+    dashboard.nextJson("welcome"),
+    quest.nextJson("welcome")
+  ]);
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  await dashboard.nextJson(
+    "seqState",
+    (message) => message.running === true
+  );
+  dashboard.sendJson({ t: "seqCommand", action: "next" });
+  await dashboard.nextJson(
+    "seqState",
+    (message) => message.stepId === "approach"
+  );
+
+  quest.sendJson({ t: "voFinished", stepId: "intro" });
+  await assert.rejects(
+    dashboard.nextJson("musicState", () => true, 80),
+    /Timed out waiting for JSON message musicState/
+  );
+  assert.equal(
+    musicTrackFrom(fixture.server.getState().musicState, "amb_1_2").playing,
+    false
+  );
+
+  quest.sendJson({ t: "voFinished", stepId: "approach" });
+  await dashboard.nextJson(
+    "musicState",
+    (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+  );
+});
+
+test("sequence moves flush pending cues before the entered step's cue", async (t) => {
+  for (const timingParams of [
+    { timing: "voEnd" },
+    { delayMs: 5_000 }
+  ]) {
+    for (const [action, stepIndex, expectedStepId] of [
+      ["next", undefined, "approach"],
+      ["goto", 1, "approach"],
+      ["start", undefined, "intro"]
+    ]) {
+      const pendingCue = {
+        trackId: "amb_1_2",
+        action: "in",
+        ...timingParams
+      };
+      const enteredCue = { trackId: "mus_2_1", action: "in" };
+      const sequence =
+        action === "start"
+          ? sequenceWithMusicCues(enteredCue, pendingCue)
+          : sequenceWithMusicCues(pendingCue, enteredCue);
+      const fixture = await createRunningServer(t, { sequence });
+      const dashboard = await openPeer(t, fixture.wsUrl);
+      dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+      await dashboard.nextJson("welcome");
+
+      dashboard.sendJson({ t: "seqCommand", action: "start" });
+      await dashboard.nextJson(
+        "seqState",
+        (message) => message.running === true
+      );
+
+      if (action === "start") {
+        await dashboard.nextJson(
+          "musicState",
+          (message) => musicTrackFrom(message, "mus_2_1")?.playing === true
+        );
+        dashboard.sendJson({ t: "seqCommand", action: "next" });
+        await dashboard.nextJson(
+          "seqState",
+          (message) => message.stepId === "approach"
+        );
+        dashboard.sendJson({
+          t: "musicCommand",
+          trackId: "mus_2_1",
+          action: "stop"
+        });
+        await dashboard.nextJson(
+          "musicState",
+          (message) => musicTrackFrom(message, "mus_2_1")?.playing === false
+        );
+      }
+
+      const command = { t: "seqCommand", action };
+      if (stepIndex !== undefined) {
+        command.stepIndex = stepIndex;
+      }
+      dashboard.sendJson(command);
+      const flushedState = await dashboard.nextJson("musicState");
+      const enteredState = await dashboard.nextJson("musicState");
+      const seqState = await dashboard.nextJson(
+        "seqState",
+        (message) => message.stepId === expectedStepId
+      );
+      const label = `${action} ${JSON.stringify(timingParams)}`;
+
+      assert.equal(seqState.running, true, label);
+      assert.equal(
+        musicTrackFrom(flushedState, "amb_1_2").playing,
+        true,
+        label
+      );
+      assert.equal(
+        musicTrackFrom(flushedState, "mus_2_1").playing,
+        false,
+        label
+      );
+      assert.equal(
+        musicTrackFrom(enteredState, "amb_1_2").playing,
+        true,
+        label
+      );
+      assert.equal(
+        musicTrackFrom(enteredState, "mus_2_1").playing,
+        true,
+        label
+      );
+    }
+  }
+});
+
+test("delayMs cues run later and only while still on their entered step", async (t) => {
+  const scheduledFixture = await createRunningServer(t, {
+    sequence: sequenceWithMusicCues({
+      trackId: "amb_1_2",
+      action: "in",
+      delayMs: 200
+    })
+  });
+  const scheduledDashboard = await openPeer(t, scheduledFixture.wsUrl);
+  scheduledDashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await scheduledDashboard.nextJson("welcome");
+
+  scheduledDashboard.sendJson({ t: "seqCommand", action: "start" });
+  await scheduledDashboard.nextJson(
+    "seqState",
+    (message) => message.running === true
+  );
+  await assert.rejects(
+    scheduledDashboard.nextJson("musicState", () => true, 40),
+    /Timed out waiting for JSON message musicState/
+  );
+  await scheduledDashboard.nextJson(
+    "musicState",
+    (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+  );
+
+  const guardedFixture = await createRunningServer(t, {
+    sequence: sequenceWithMusicCues(null, {
+      trackId: "mus_2_1",
+      action: "in",
+      delayMs: 50
+    })
+  });
+  const guardedDashboard = await openPeer(t, guardedFixture.wsUrl);
+  guardedDashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await guardedDashboard.nextJson("welcome");
+
+  guardedDashboard.sendJson({ t: "seqCommand", action: "start" });
+  await guardedDashboard.nextJson(
+    "seqState",
+    (message) => message.running === true
+  );
+  guardedDashboard.sendJson({ t: "seqCommand", action: "next" });
+  await guardedDashboard.nextJson(
+    "seqState",
+    (message) => message.stepId === "approach"
+  );
+  guardedDashboard.sendJson({ t: "seqCommand", action: "prev" });
+  await guardedDashboard.nextJson(
+    "seqState",
+    (message) => message.stepId === "intro"
+  );
+
+  await assert.rejects(
+    guardedDashboard.nextJson(
+      "musicState",
+      (message) => musicTrackFrom(message, "mus_2_1")?.playing === true,
+      100
+    ),
+    /Timed out waiting for JSON message musicState/
+  );
+  assert.equal(
+    musicTrackFrom(
+      guardedFixture.server.getState().musicState,
+      "mus_2_1"
+    ).playing,
+    false
+  );
+});
+
+test("fade stops publish fadeOutSeconds and replay clears it", async (t) => {
+  const fixture = await createRunningServer(t, {
+    sequence: sequenceWithMusicCues(
+      { trackId: "amb_1_2", action: "in" },
+      {
+        trackId: "amb_1_2",
+        action: "out",
+        fadeSeconds: 5
+      }
+    )
+  });
+  const dashboard = await openPeer(t, fixture.wsUrl);
+  dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+  await dashboard.nextJson("welcome");
+
+  dashboard.sendJson({ t: "seqCommand", action: "start" });
+  await dashboard.nextJson(
+    "seqState",
+    (message) => message.running === true
+  );
+  const playingState = await dashboard.nextJson(
+    "musicState",
+    (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+  );
+  assert.equal(
+    musicTrackFrom(playingState, "amb_1_2").fadeOutSeconds,
+    0
+  );
+
+  dashboard.sendJson({ t: "seqCommand", action: "next" });
+  await dashboard.nextJson(
+    "seqState",
+    (message) => message.stepId === "approach"
+  );
+  const fadedState = await dashboard.nextJson(
+    "musicState",
+    (message) => musicTrackFrom(message, "amb_1_2")?.playing === false
+  );
+  assert.equal(
+    musicTrackFrom(fadedState, "amb_1_2").fadeOutSeconds,
+    5
+  );
+
+  dashboard.sendJson({
+    t: "musicCommand",
+    trackId: "amb_1_2",
+    action: "play"
+  });
+  const replayedState = await dashboard.nextJson(
+    "musicState",
+    (message) => musicTrackFrom(message, "amb_1_2")?.playing === true
+  );
+  assert.equal(
+    musicTrackFrom(replayedState, "amb_1_2").fadeOutSeconds,
+    0
+  );
+});
+
+test("stop and reset cancel pending voEnd and delayed cues", async (t) => {
+  for (const [action, timingParams] of [
+    ["stop", { timing: "voEnd" }],
+    ["stop", { delayMs: 5_000 }],
+    ["reset", { timing: "voEnd" }],
+    ["reset", { delayMs: 5_000 }]
+  ]) {
+    const fixture = await createRunningServer(t, {
+      sequence: sequenceWithMusicCues(null, {
+        trackId: "amb_1_2",
+        action: "in",
+        ...timingParams
+      })
+    });
+    const dashboard = await openPeer(t, fixture.wsUrl);
+    dashboard.sendJson({ t: "hello", clientType: "dashboard" });
+    await dashboard.nextJson("welcome");
+
+    dashboard.sendJson({ t: "seqCommand", action: "start" });
+    await dashboard.nextJson(
+      "seqState",
+      (message) => message.running === true
+    );
+    dashboard.sendJson({ t: "seqCommand", action: "next" });
+    await dashboard.nextJson(
+      "seqState",
+      (message) => message.stepId === "approach"
+    );
+    dashboard.sendJson({ t: "seqCommand", action });
+    await dashboard.nextJson(
+      "seqState",
+      (message) => message.running === false
+    );
+    if (action === "reset") {
+      await dashboard.nextJson(
+        "musicState",
+        (message) => message.tracks.every((track) => !track.playing)
+      );
+    }
+
+    dashboard.sendJson({ t: "seqCommand", action: "start" });
+    await dashboard.nextJson(
+      "seqState",
+      (message) => message.running === true
+    );
+    await assert.rejects(
+      dashboard.nextJson(
+        "musicState",
+        (message) => musicTrackFrom(message, "amb_1_2")?.playing === true,
+        80
+      ),
+      /Timed out waiting for JSON message musicState/,
+      `${action} ${JSON.stringify(timingParams)}`
+    );
+
+    dashboard.sendJson({ t: "seqCommand", action: "stop" });
+    await dashboard.nextJson(
+      "seqState",
+      (message) => message.running === false
+    );
+  }
 });
 
 test("rejects WebSocket upgrades outside the exact /ws pathname", async (t) => {

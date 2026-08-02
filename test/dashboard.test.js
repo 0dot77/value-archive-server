@@ -627,9 +627,10 @@ test("provides the compact cue-console structure and labels", async () => {
 });
 
 test("exposes two replacement subtitle buttons and active cue-copy hooks", async () => {
-  const [html, css] = await Promise.all([
+  const [html, css, source] = await Promise.all([
     readFile(htmlPath, "utf8"),
-    readFile(stylePath, "utf8")
+    readFile(stylePath, "utf8"),
+    readFile(appPath, "utf8")
   ]);
   const buttonLayout = css.match(
     /\.transport-secondary \.subtitle-language\s*\{([^}]*)\}/s
@@ -653,9 +654,9 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
     )
   ].map(([button]) => button);
   assert.equal(buttons.length, 2);
-  for (const [lang, label] of [
-    ["en", "EN 자막"],
-    ["zh", "만다린 자막"]
+  for (const [lang, label, pressed] of [
+    ["en", "EN 자막", "true"],
+    ["zh", "만다린 자막", "false"]
   ]) {
     const button = buttons.find((candidate) =>
       new RegExp(`\\bdata-lang="${lang}"`).test(candidate)
@@ -663,7 +664,11 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
     assert.ok(button, `missing ${lang} subtitle language button`);
     assert.match(button, /\bdata-server-control\b/);
     assert.match(button, /\bdisabled\b/);
-    assert.match(button, /\baria-pressed="false"/);
+    assert.match(
+      button,
+      new RegExp(`\\baria-pressed="${pressed}"`),
+      `${lang} button must start aria-pressed="${pressed}"`
+    );
     assert.match(button, new RegExp(`>${label}<\\/button>`));
   }
   assert.doesNotMatch(
@@ -672,7 +677,7 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
   );
   assert.match(
     html,
-    /id="transport-status"[\s\S]*data-seq-field="subtitle-lang"[^>]*>SUB KR</
+    /id="transport-status"[\s\S]*data-seq-field="subtitle-lang"[^>]*>SUB EN</
   );
   assert.ok(subtitleStatus, "missing compact subtitle status label");
   assert.match(subtitleStatus, /font-family:[^;]*monospace;/);
@@ -685,19 +690,36 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
   assert.match(activeLanguage, /background:\s*var\(--invert-bg\);/);
   assert.match(activeLanguage, /color:\s*var\(--invert-text\);/);
 
-  for (const lang of ["kr", "en", "zh"]) {
+  for (const [lang, initialState] of [
+    ["kr", "is-inactive"],
+    ["en", "is-active"],
+    ["zh", "is-inactive"]
+  ]) {
     assert.equal(
       (
         html.match(
           new RegExp(
-            `class="[^"]*\\bcue-copy__line\\b[^"]*"[^>]*data-cue-lang="${lang}"`,
+            `class="[^"]*\\bcue-copy__line\\b[^"]*\\b${initialState}\\b[^"]*"` +
+              `[^>]*data-cue-lang="${lang}"`,
             "g"
           )
         ) ?? []
       ).length,
-      2
+      2,
+      `${lang} cue lines must start ${initialState}`
     );
   }
+
+  assert.match(source, /^const DEFAULT_SUBTITLE_LANG = "en";$/m);
+  assert.equal(
+    (source.match(/\{ lang: DEFAULT_SUBTITLE_LANG \}/g) ?? []).length,
+    5,
+    "initial, welcome fallback, and demo subtitle states must share the default"
+  );
+  assert.match(
+    source,
+    /function subtitleLanguage\(\)\s*\{[\s\S]*?: DEFAULT_SUBTITLE_LANG;/
+  );
   assert.ok(activeLine, "missing active cue-copy language state");
   assert.match(activeLine, /color:\s*var\(--text\);/);
   assert.match(activeLine, /opacity:\s*1;/);
