@@ -803,7 +803,7 @@ test("keeps both cue panels' detail hooks while hiding rendered dashes", async (
   const html = await readFile(htmlPath, "utf8");
   const source = await readFile(appPath, "utf8");
   const setter = source.match(
-    /function setCueField\(panel, name, value\)\s*\{[\s\S]*?\n  \}\n\n  function musicCueText/
+    /function setCueField\(panel, name, value\)\s*\{[\s\S]*?\r?\n  \}\r?\n\r?\n  function musicCueText/
   )?.[0];
 
   for (const name of ["xr", "ui", "vo", "sfx", "music", "note"]) {
@@ -1302,7 +1302,7 @@ test("restores source-order scrolling below 1100px and one-column mobile cards",
 test("lays out V.O status before auto-scrolling the current cue row", async () => {
   const source = await readFile(appPath, "utf8");
   const renderer = source.match(
-    /function renderSequence\(\)\s*\{[\s\S]*?\n  \}\n\n  function applyDevices/
+    /function renderSequence\(\)\s*\{[\s\S]*?\r?\n  \}\r?\n\r?\n  function applyDevices/
   )?.[0];
 
   assert.ok(renderer, "missing sequence renderer");
@@ -1320,7 +1320,7 @@ test("lays out V.O status before auto-scrolling the current cue row", async () =
 test("toggles health details through the delegated click handler", async () => {
   const source = await readFile(appPath, "utf8");
   const clickHandler = source.match(
-    /function handleClick\(event\)\s*\{[\s\S]*?\n  \}\n\n  function teardown/
+    /function handleClick\(event\)\s*\{[\s\S]*?\r?\n  \}\r?\n\r?\n  function teardown/
   )?.[0];
 
   assert.ok(clickHandler, "missing delegated click handler");
