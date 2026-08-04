@@ -864,7 +864,7 @@
       "targets": ["A", "B"],
       "trigger": { "type": "manual" },
       "params": {
-        "cueNumber": null,
+        "cueNumber": 38,
         "scene": "S3-4 노래감상",
         "sceneId": "s3-4",
         "speaker": "",
@@ -877,7 +877,7 @@
         "vo": "",
         "voDurationMs": null,
         "sfx": "",
-        "musicCue": { "trackId": "mus_reunion", "action": "fadeDown", "note": "1절 후 fade down" },
+        "musicCue": null,
         "note": ""
       }
     },
