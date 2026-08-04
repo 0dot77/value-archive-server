@@ -655,8 +655,8 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
   ].map(([button]) => button);
   assert.equal(buttons.length, 2);
   for (const [lang, label, pressed] of [
-    ["en", "EN 자막", "true"],
-    ["zh", "만다린 자막", "false"]
+    ["en", "EN 자막", "false"],
+    ["zh", "만다린 자막", "true"]
   ]) {
     const button = buttons.find((candidate) =>
       new RegExp(`\\bdata-lang="${lang}"`).test(candidate)
@@ -677,7 +677,7 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
   );
   assert.match(
     html,
-    /id="transport-status"[\s\S]*data-seq-field="subtitle-lang"[^>]*>SUB EN</
+    /id="transport-status"[\s\S]*data-seq-field="subtitle-lang"[^>]*>SUB ZH</
   );
   assert.ok(subtitleStatus, "missing compact subtitle status label");
   assert.match(subtitleStatus, /font-family:[^;]*monospace;/);
@@ -692,8 +692,8 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
 
   for (const [lang, initialState] of [
     ["kr", "is-inactive"],
-    ["en", "is-active"],
-    ["zh", "is-inactive"]
+    ["en", "is-inactive"],
+    ["zh", "is-active"]
   ]) {
     assert.equal(
       (
@@ -710,7 +710,7 @@ test("exposes two replacement subtitle buttons and active cue-copy hooks", async
     );
   }
 
-  assert.match(source, /^const DEFAULT_SUBTITLE_LANG = "en";$/m);
+  assert.match(source, /^const DEFAULT_SUBTITLE_LANG = "zh";$/m);
   assert.equal(
     (source.match(/\{ lang: DEFAULT_SUBTITLE_LANG \}/g) ?? []).length,
     5,

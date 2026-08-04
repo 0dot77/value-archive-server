@@ -19,7 +19,7 @@ const DISCOVERY_REQUEST = "VA_DISCOVER?";
 const VALID_ROLES = new Set(["A", "B"]);
 const VALID_PREVIEW_SOURCES = new Set(["eye", "pca"]);
 const VALID_SUBTITLE_LANGS = new Set(["kr", "en", "zh"]);
-const DEFAULT_SUBTITLE_LANG = "en";
+const DEFAULT_SUBTITLE_LANG = "zh";
 const CLIENT_CONTEXT = Symbol("valueArchiveClientContext");
 const PROJECT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 

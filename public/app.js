@@ -1,7 +1,7 @@
 const ROLES = ["A", "B"];
 const SUBTITLE_LANGS = new Set(["kr", "en", "zh"]);
 const SELECTABLE_SUBTITLE_LANGS = new Set(["en", "zh"]);
-const DEFAULT_SUBTITLE_LANG = "en";
+const DEFAULT_SUBTITLE_LANG = "zh";
 const RESET_CONFIRM_MESSAGE = "공연을 시작 전 상태로 리셋할까요? 큐가 처음으로 돌아가고 음악이 모두 정지됩니다.";
 const EDITABLE_TAG_NAMES = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 const SPACE_INTERACTIVE_TAG_NAMES = new Set(["A", "BUTTON", "SUMMARY"]);

@@ -82,7 +82,7 @@ const initialMusicState = {
 };
 
 const initialSubtitleState = {
-  lang: "en"
+  lang: "zh"
 };
 
 const completeHealth = {
@@ -644,7 +644,7 @@ test("serves exact REST state and validates assignment and sequence commands", a
   stateCopy.sequence.steps[0].title = "mutated";
   stateCopy.seqState.params.cue = "mutated";
   stateCopy.musicState.tracks[0].playing = true;
-  stateCopy.subtitleState.lang = "zh";
+  stateCopy.subtitleState.lang = "en";
   assert.equal(fixture.server.getState().sequence.steps[0].title, "Intro");
   assert.equal(fixture.server.getState().seqState.params.cue, "standby");
   assert.equal(
@@ -717,15 +717,15 @@ test("serves exact REST state and validates assignment and sequence commands", a
   assert.equal(playingMusic.response.status, 200);
   assert.equal(playingMusic.json.musicState.tracks[0].playing, true);
 
-  const mandarin = await requestJson(
+  const english = await requestJson(
     `${fixture.httpBaseUrl}/api/subtitle`,
     {
       method: "POST",
-      body: { lang: "zh" }
+      body: { lang: "en" }
     }
   );
-  assert.equal(mandarin.response.status, 200);
-  assert.equal(mandarin.json.subtitleState.lang, "zh");
+  assert.equal(english.response.status, 200);
+  assert.equal(english.json.subtitleState.lang, "en");
 
   const reset = await requestJson(`${fixture.httpBaseUrl}/api/seq`, {
     method: "POST",
@@ -1309,11 +1309,11 @@ test("stop and start reset all runtime music and subtitle state", async (t) => {
 
   dashboard.sendJson({
     t: "subtitleCommand",
-    lang: "zh"
+    lang: "en"
   });
   assert.deepEqual(await dashboard.nextJson("subtitleState"), {
     t: "subtitleState",
-    lang: "zh"
+    lang: "en"
   });
 
   await fixture.server.stop();
@@ -1818,13 +1818,13 @@ test("dashboard reset restores show state and broadcasts sequence, music, and su
       )
     ]);
   }
-  dashboard.sendJson({ t: "subtitleCommand", lang: "zh" });
+  dashboard.sendJson({ t: "subtitleCommand", lang: "en" });
   await Promise.all([
     dashboard.nextJson(
       "subtitleState",
-      (message) => message.lang === "zh"
+      (message) => message.lang === "en"
     ),
-    quest.nextJson("subtitleState", (message) => message.lang === "zh")
+    quest.nextJson("subtitleState", (message) => message.lang === "en")
   ]);
 
   dashboard.sendJson({ t: "seqCommand", action: "reset" });
@@ -1874,8 +1874,8 @@ test("dashboard reset restores show state and broadcasts sequence, music, and su
       )
     );
   }
-  assert.deepEqual(dashboardSubtitle, { t: "subtitleState", lang: "en" });
-  assert.deepEqual(questSubtitle, { t: "subtitleState", lang: "en" });
+  assert.deepEqual(dashboardSubtitle, { t: "subtitleState", lang: "zh" });
+  assert.deepEqual(questSubtitle, { t: "subtitleState", lang: "zh" });
   assert.deepEqual(fixture.server.getState().seqState, {
     sequenceId: "performance-v1",
     running: false,
