@@ -2,6 +2,8 @@ const ROLES = ["A", "B"];
 const SUBTITLE_LANGS = new Set(["kr", "en", "zh"]);
 const SELECTABLE_SUBTITLE_LANGS = new Set(["en", "zh"]);
 const DEFAULT_SUBTITLE_LANG = "zh";
+// Measured verse-1 vocal onset of mus_추억속의재회.mp3.
+const MUS_REUNION_VERSE_ONSET_SECONDS = 44.25;
 const RESET_CONFIRM_MESSAGE = "공연을 시작 전 상태로 리셋할까요? 큐가 처음으로 돌아가고 음악이 모두 정지됩니다.";
 const EDITABLE_TAG_NAMES = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 const SPACE_INTERACTIVE_TAG_NAMES = new Set(["A", "BUTTON", "SUMMARY"]);
@@ -496,6 +498,7 @@ function startDashboard() {
   const unassignedList = document.querySelector("#unassigned-devices");
   const sequenceSteps = document.querySelector("#sequence-steps");
   const musicChannels = document.querySelector("#music-channels");
+  const verseCountdown = document.querySelector("[data-verse-countdown]");
   const cuePanels = {
     now: document.querySelector('[data-cue-panel="now"]'),
     deck: document.querySelector('[data-cue-panel="deck"]')
@@ -910,6 +913,60 @@ function startDashboard() {
     return orderedIds.map((trackId) => tracksById.get(trackId));
   }
 
+  function renderVerseCountdown() {
+    const stepIndex = currentStepIndex();
+    const lyricStepIndex = sequenceStepsArray().findIndex(
+      (step) => step?.stepId === "s3-4-song"
+    );
+    const reunionTrack = normalizeMusicTracks().find(
+      (track) => track.trackId === "mus_reunion"
+    );
+    const shouldShow =
+      state.seqState?.running === true &&
+      lyricStepIndex >= 0 &&
+      stepIndex !== null &&
+      stepIndex < lyricStepIndex;
+
+    verseCountdown.hidden = !shouldShow;
+    if (!shouldShow) {
+      verseCountdown.classList.remove("is-idle", "is-arm", "is-go");
+      return;
+    }
+
+    const isIdle = reunionTrack?.playing !== true;
+    verseCountdown.classList.toggle("is-idle", isIdle);
+    if (isIdle) {
+      verseCountdown.classList.remove("is-arm", "is-go");
+      verseCountdown.textContent = "가사 IN — 노래 대기 (CN 35)";
+      return;
+    }
+
+    const elapsedMs = calculateServerElapsedMs(
+      reunionTrack.startedAtServerMs,
+      Date.now(),
+      state.serverClockOffsetMs
+    );
+    if (elapsedMs === null) {
+      verseCountdown.classList.remove("is-arm", "is-go");
+      verseCountdown.textContent = "가사 IN —";
+      return;
+    }
+
+    const remainingSeconds =
+      MUS_REUNION_VERSE_ONSET_SECONDS - elapsedMs / 1000;
+    const isGo = remainingSeconds <= 0;
+    const isArm = !isGo && remainingSeconds <= 5;
+    verseCountdown.classList.toggle("is-arm", isArm);
+    verseCountdown.classList.toggle("is-go", isGo);
+
+    if (isGo) {
+      const lateSeconds = Math.abs(remainingSeconds).toFixed(1);
+      verseCountdown.textContent = `GO — CN 38 · +${lateSeconds}s`;
+      return;
+    }
+    verseCountdown.textContent = `가사 IN −${remainingSeconds.toFixed(1)}초`;
+  }
+
   function renderMusicElapsed() {
     const tracksById = new Map(
       normalizeMusicTracks().map((track) => [track.trackId, track])
@@ -1320,6 +1377,7 @@ function startDashboard() {
       "deck"
     );
     renderMusicChannels();
+    renderVerseCountdown();
     renderVoProgress();
     renderCueSheet();
   }
@@ -1376,6 +1434,7 @@ function startDashboard() {
         sendJson(makePongMessage(message.serverTimeMs));
         renderVoProgress();
         renderMusicElapsed();
+        renderVerseCountdown();
         return;
       case "welcome":
         updateClockOffset(message.serverTimeMs);
@@ -1406,6 +1465,7 @@ function startDashboard() {
       case "musicState":
         state.musicState = message;
         renderMusicChannels();
+        renderVerseCountdown();
         return;
       case "subtitleState":
         state.subtitleState = message;
@@ -1771,6 +1831,7 @@ function startDashboard() {
   function renderLiveTimings() {
     renderRelativeAges();
     renderMusicElapsed();
+    renderVerseCountdown();
     renderVoProgress();
   }
 
@@ -1901,7 +1962,7 @@ function startDashboard() {
 
   document.addEventListener("click", handleClick);
   document.addEventListener("keydown", handleKeydown);
-  const liveTimer = window.setInterval(renderLiveTimings, 1000);
+  const liveTimer = window.setInterval(renderLiveTimings, 100);
   window.addEventListener("beforeunload", teardown, { once: true });
 
   renderRoleCards();

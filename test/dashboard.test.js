@@ -563,6 +563,113 @@ test("provides semantic A/B, unassigned, sequence, and preview-control hooks", a
   }
 });
 
+test("defines the measured mus_reunion verse-1 vocal onset", async () => {
+  const source = await readFile(appPath, "utf8");
+
+  assert.match(
+    source,
+    /^const MUS_REUNION_VERSE_ONSET_SECONDS[ \t]*=[ \t]*44\.25;[ \t]*\r?$/m
+  );
+});
+
+test("provides a monochrome verse countdown indicator", async () => {
+  const html = await readFile(htmlPath, "utf8");
+  const css = await readFile(stylePath, "utf8");
+  const indicator = html.match(/<[^>]*\bid="verse-countdown"[^>]*>/)?.[0];
+
+  assert.ok(indicator, "missing verse countdown element");
+  assert.match(indicator, /\bclass="[^"]*\bverse-countdown\b[^"]*"/);
+  assert.match(indicator, /\bdata-verse-countdown\b/);
+  assert.match(indicator, /\brole="timer"/);
+  assert.match(indicator, /\bhidden\b/);
+  assert.match(css, /\.verse-countdown\s*\{/);
+  const idleRule = css.match(/\.verse-countdown\.is-idle\s*\{[^}]*\}/)?.[0];
+  assert.ok(idleRule, "missing idle verse countdown style");
+  assert.match(idleRule, /border-style:\s*dashed;/);
+  assert.match(idleRule, /color:\s*var\(--text-dim\);/);
+  assert.match(idleRule, /opacity:\s*0\.65;/);
+  assert.match(css, /\.verse-countdown\.is-arm\s*\{/);
+  assert.match(css, /\.verse-countdown\.is-go\s*\{/);
+});
+
+test("shows a dormant verse countdown while mus_reunion waits before s3-4-song", async () => {
+  const source = await readFile(appPath, "utf8");
+  const renderer = source.match(
+    /function renderVerseCountdown\(\)\s*\{[\s\S]*?\r?\n  \}\r?\n\r?\n  function renderMusicElapsed/
+  )?.[0];
+
+  assert.ok(renderer, "missing verse countdown renderer");
+  assert.match(
+    renderer,
+    /const isIdle\s*=\s*reunionTrack\?\.playing\s*!==\s*true;/
+  );
+  assert.match(
+    renderer,
+    /verseCountdown\.hidden\s*=\s*!shouldShow\s*;/
+  );
+  assert.match(
+    renderer,
+    /if\s*\(!shouldShow\)\s*\{[\s\S]*?classList\.remove\(\s*"is-idle",\s*"is-arm",\s*"is-go"\s*\);[\s\S]*?return;/
+  );
+  assert.match(
+    renderer,
+    /classList\.toggle\("is-idle",\s*isIdle\)/
+  );
+  assert.match(
+    renderer,
+    /if\s*\(isIdle\)\s*\{[\s\S]*?classList\.remove\(\s*"is-arm",\s*"is-go"\s*\);[\s\S]*?textContent\s*=\s*"가사 IN — 노래 대기 \(CN 35\)";[\s\S]*?return;/
+  );
+});
+
+test("shows GO for CN 38 only before the loaded s3-4-song step", async () => {
+  const source = await readFile(appPath, "utf8");
+  const renderer = source.match(
+    /function renderVerseCountdown\(\)\s*\{[\s\S]*?\r?\n  \}\r?\n\r?\n  function renderMusicElapsed/
+  )?.[0];
+
+  assert.ok(renderer, "missing verse countdown renderer");
+  assert.match(
+    renderer,
+    /\.findIndex\(\s*\(step\)\s*=>\s*step\?\.stepId\s*===\s*"s3-4-song"\s*\)/
+  );
+  assert.match(
+    renderer,
+    /normalizeMusicTracks\(\)\.find\(\s*\(track\)\s*=>\s*track\.trackId\s*===\s*"mus_reunion"\s*\)/
+  );
+  assert.match(
+    renderer,
+    /const shouldShow\s*=\s*state\.seqState\?\.running\s*===\s*true\s*&&\s*lyricStepIndex\s*>=\s*0\s*&&\s*stepIndex\s*!==\s*null\s*&&\s*stepIndex\s*<\s*lyricStepIndex\s*;/
+  );
+  assert.match(
+    renderer,
+    /calculateServerElapsedMs\(\s*reunionTrack\.startedAtServerMs,\s*Date\.now\(\),\s*state\.serverClockOffsetMs\s*\)/
+  );
+  assert.match(
+    renderer,
+    /MUS_REUNION_VERSE_ONSET_SECONDS\s*-\s*elapsedMs\s*\/\s*1000/
+  );
+  assert.match(
+    renderer,
+    /const isGo\s*=\s*remainingSeconds\s*<=\s*0;/
+  );
+  assert.match(
+    renderer,
+    /const isArm\s*=\s*!isGo\s*&&\s*remainingSeconds\s*<=\s*5;/
+  );
+  assert.match(renderer, /classList\.toggle\("is-arm",\s*isArm\)/);
+  assert.match(renderer, /classList\.toggle\("is-go",\s*isGo\)/);
+  assert.match(renderer, /GO — CN 38/);
+  assert.match(
+    renderer,
+    /const lateSeconds\s*=\s*Math\.abs\(remainingSeconds\)\.toFixed\(1\);/
+  );
+  assert.match(renderer, /\+\$\{lateSeconds\}s/);
+  assert.match(
+    source,
+    /function renderLiveTimings\(\)\s*\{[\s\S]*?renderMusicElapsed\(\);[\s\S]*?renderVerseCountdown\(\);[\s\S]*?\r?\n  \}/
+  );
+});
+
 test("provides the compact cue-console structure and labels", async () => {
   const html = await readFile(htmlPath, "utf8");
   const directChildren = directChildOpeningTags(

@@ -394,6 +394,47 @@ summary:focus-visible {
   white-space: nowrap;
 }
 
+.verse-countdown {
+  border: 1px dashed var(--line-strong);
+  padding: 0.38rem 0.55rem;
+  background: var(--panel);
+  color: var(--text-dim);
+  font-family: "Consolas", "SF Mono", "Courier New", monospace;
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.15;
+  text-align: center;
+}
+
+.verse-countdown.is-idle {
+  border-color: var(--line);
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-dim);
+  font-weight: 700;
+  opacity: 0.65;
+}
+
+.verse-countdown.is-arm {
+  border-color: var(--text);
+  border-style: solid;
+  background: var(--panel-raised);
+  color: var(--text);
+  font-weight: 950;
+}
+
+.verse-countdown.is-go {
+  border-color: var(--invert-bg);
+  border-style: solid;
+  background: var(--invert-bg);
+  color: var(--invert-text);
+  font-size: 0.9rem;
+  font-weight: 950;
+  letter-spacing: 0.07em;
+}
+
 .music-channels {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
